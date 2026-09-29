@@ -49,6 +49,7 @@ class Edge:
     t_created: datetime | None = None
     t_expired: datetime | None = None
     neighbors: list[str] = field(default_factory=list)
+    _src: str = ""
 
 
 class ZepGraph:
@@ -92,7 +93,8 @@ class ZepGraph:
             self._invalidate_slot("pet", None, ts)
         for slot, val, fact in self._extract(text):
             self._n += 1
-            e = Edge(f"e{self._n}", "user", val, fact, slot, ts, None, ts)
+            e = Edge(f"e{self._n}", "user", val, fact, slot, ts, None, ts,
+                     None, [], text)
             self.edges[e.eid] = e
             self._index.add(e.eid, f"{fact} {text}")
             for prev in self.edges.values():
@@ -107,8 +109,10 @@ class ZepGraph:
     # ----- busca híbrida / hybrid search -----
     def _bm25_scores(self, query: str) -> dict[str, float]:
         q = token_set(query)
-        return {eid: len(q & token_set(e.fact)) for eid, e in
-                self.edges.items()}
+        # PT: BM25 sobre o documento indexado (fato + texto original).
+        # EN: BM25 over the indexed doc (fact + original text).
+        return {eid: len(q & token_set(e.fact + " " + e._src))
+                for eid, e in self.edges.items()}
 
     def _bfs(self, seed_ids: list[str], hops: int = 1) -> list[str]:
         seen = set(seed_ids)
