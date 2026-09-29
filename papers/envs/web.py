@@ -61,6 +61,7 @@ class MiniWeb:
         self.steps = 0
         self.done = False
         self.answer: str | None = None
+        self._typed: dict[str, str] = {}
         return self._observe()
 
     # ---------- páginas / pages ----------
@@ -173,8 +174,6 @@ class MiniWeb:
     def _type(self, rest: str) -> str:
         el, _, text = rest.partition(" ")
         _, _, inputs = self._page()
-        if not hasattr(self, "_typed"):
-            self._typed = {}
         if el not in inputs:
             return f"Input {el} not found on this page."
         self._typed[el] = text

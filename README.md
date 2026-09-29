@@ -27,10 +27,10 @@ python -m papers.p02_reflexion.run --write-results
 | `p02_reflexion` | Reflexion (2303.11366) | ✅ |
 | `p03_memrl` | MemRL (2601.03192) | ✅ |
 | `p04_muse` | MUSE (2411.13537) | ✅ |
-| `p05_cer` | CER (2506.06698) | em breve / coming soon |
-| `p06_voyager` | Voyager (2305.16291) | em breve / coming soon |
-| `p07_muse_autoskill` | MUSE-Autoskill (2605.27366) | em breve / coming soon |
-| `p08_coala` | CoALA (2309.02427) | em breve / coming soon |
+| `p05_cer` | CER (2506.06698) | ✅ |
+| `p06_voyager` | Voyager (2305.16291) | ✅ |
+| `p07_muse_autoskill` | MUSE-Autoskill (2605.27366) | ✅ |
+| `p08_coala` | CoALA (2309.02427) | ✅ |
 | `p09_generative_agents` | Generative Agents (2304.03442) | em breve / coming soon |
 | `p10_memgpt` | MemGPT (2310.08560) | em breve / coming soon |
 | `p11_a_mem` | A-MEM (2502.12110) | em breve / coming soon |
