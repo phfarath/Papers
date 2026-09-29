@@ -100,20 +100,31 @@ def _normalize(s: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", s.lower()))
 
 
-def judge_answer(llm: LLM, question: str, gold: str, pred: str) -> bool:
-    """PT: juiz de resposta. No mock, match normalizado/substring; com LLM real,
-    usamos um prompt de juiz (task "qa.judge").
+@mock_handler("qa.judge")
+def _qa_judge(prompt: str, rng: random.Random) -> str:
+    """PT: juiz mock — match normalizado/substring lido do prompt.
 
-    EN: answer judge. With mock, normalized substring match; with a real LLM we
-    use a judge prompt (task "qa.judge").
+    EN: mock judge — normalized substring match read from the prompt.
     """
-    from papers.common.llm import MockLLM  # evita import circular / avoids cycle
+    g = p = ""
+    for line in prompt.splitlines():
+        low = line.lower()
+        if low.startswith("gold:"):
+            g = line[5:].strip()
+        elif low.startswith("pred:"):
+            p = line[5:].strip()
+    gn, pn = _normalize(g), _normalize(p)
+    ok = bool(gn) and bool(pn) and (gn in pn or pn in gn or gn == pn)
+    return "yes" if ok else "no"
 
-    if isinstance(llm, MockLLM):
-        g, p = _normalize(gold), _normalize(pred)
-        if not g or not p:
-            return False
-        return g in p or p in g or g == p
+
+def judge_answer(llm: LLM, question: str, gold: str, pred: str) -> bool:
+    """PT: juiz de resposta via prompt (task "qa.judge") — funciona igual no
+    mock e num LLM real.
+
+    EN: answer judge via a prompt (task "qa.judge") — works the same on the
+    mock and on a real LLM.
+    """
     body = (
         "You are a strict judge. Decide if PRED matches GOLD for the QUESTION. "
         "Reply only 'yes' or 'no'.\n"

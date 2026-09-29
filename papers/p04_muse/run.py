@@ -19,10 +19,11 @@ from __future__ import annotations
 
 import argparse
 import random
+from dataclasses import dataclass
 from pathlib import Path
 
 from papers.common.llm import get_llm
-from papers.envs.household import TASKS, run_episode
+from papers.envs.household import TASKS, TaskSpec, run_episode
 from papers.p02_reflexion.method import ReflexionAgent
 from papers.p04_muse.method import (
     FAIL_TTC,
@@ -42,14 +43,41 @@ TRAIN_SEEDS = (0, 1)
 ADAPT_EPS, TEST_EPS = 5, 5
 
 
-def collect_predeployment(seed: int, llm_kind: str, out_dir: Path) -> tuple:
+@dataclass
+class Metrics:
+    """PT: métricas de um agente no deployment. EN: deployment metrics."""
+
+    success: float
+    ttc: float
+    meta_acc: float | None = None
+    auroc2: float = float("nan")
+
+
+@dataclass
+class PredeployResult:
+    sa: SelfAssessment
+    n_sft: int
+    n_dpo: int
+
+
+@dataclass
+class ExperimentResult:
+    n_sft: int
+    n_dpo: int
+    muse_noadapt: Metrics
+    muse_adapt: Metrics
+    baselines: dict[str, Metrics]
+
+
+def collect_predeployment(seed: int, llm_kind: str, out_dir: Path
+                          ) -> PredeployResult:
     """PT: Reflexion nas tarefas ID → dados + datasets SFT/DPO em JSONL.
 
     EN: Reflexion on ID tasks → data + SFT/DPO datasets as JSONL.
     """
     sa = SelfAssessment()
     chunks: list[tuple[str, str, float]] = []
-    episodes_meta: list[tuple] = []
+    episodes_meta: list[tuple[TaskSpec, bool, list[tuple[str, str]], str]] = []
     for task in ID_TASKS:
         for s in TRAIN_SEEDS:
             sd = seed * 100 + s
@@ -74,11 +102,11 @@ def collect_predeployment(seed: int, llm_kind: str, out_dir: Path) -> tuple:
     dpo = build_dpo_dataset(episodes_meta)
     write_jsonl(sft, out_dir / "sft.jsonl")
     write_jsonl(dpo, out_dir / "dpo.jsonl")
-    return sa, len(sft), len(dpo)
+    return PredeployResult(sa, len(sft), len(dpo))
 
 
 def run_muse(seed: int, llm_kind: str, sa: SelfAssessment,
-             adapt: bool) -> dict:
+             adapt: bool) -> Metrics:
     """PT: deployment OOD. EN: OOD deployment."""
     wins = ttc = 0
     sa_scores: list[float] = []
@@ -99,7 +127,7 @@ def run_muse(seed: int, llm_kind: str, sa: SelfAssessment,
             wins += ok
             ttc += len(traj) if ok else FAIL_TTC
             n_eps += 1
-            if ag.sa.w is not None and len(traj) >= 4:
+            if ag.sa.w2 is not None and len(traj) >= 4:
                 txt = " ".join(a + " " + o.split(" You are in")[0]
                                for a, o in traj[:4])
                 sa_scores.append(ag.sa.predict(txt, task.description))
@@ -109,21 +137,23 @@ def run_muse(seed: int, llm_kind: str, sa: SelfAssessment,
         acc = sum(int(s > 0.5) == lbl
                   for s, lbl in zip(sa_scores, sa_labels, strict=True)
                   ) / len(sa_scores)
-    return {"success": wins / n_eps, "ttc": ttc / n_eps,
-            "meta_acc": acc, "auroc2": auroc(sa_scores, sa_labels)}
+    return Metrics(wins / n_eps, ttc / n_eps, acc, auroc(sa_scores, sa_labels))
 
 
 def _clone_sa(sa: SelfAssessment) -> SelfAssessment:
     """PT: mesma g_η, replay novo. EN: same g_η weights, fresh replay."""
-    c = SelfAssessment(sa.emb, sa.lr)
-    c.w = None if sa.w is None else sa.w.copy()
-    c.b = sa.b
+    c = SelfAssessment(sa.emb, sa.lr, sa.hidden)
+    if sa.w1 is not None:
+        c.w1 = sa.w1.copy()
+        c.b1 = None if sa.b1 is None else sa.b1.copy()
+        c.w2 = None if sa.w2 is None else sa.w2.copy()
+        c.b2 = sa.b2
     return c
 
 
-def run_baselines(seed: int, llm_kind: str) -> dict:
+def run_baselines(seed: int, llm_kind: str) -> dict[str, Metrics]:
     """PT: ReAct (sem memória) e Reflexion nos OOD. EN: baselines on OOD."""
-    out = {}
+    out: dict[str, Metrics] = {}
     for name in ("ReAct", "Reflexion"):
         wins = ttc = n = 0
         for task in OOD_TASKS:
@@ -131,7 +161,7 @@ def run_baselines(seed: int, llm_kind: str) -> dict:
                 sd = seed * 100 + ep
                 if name == "ReAct":
                     res = run_episode(get_llm(llm_kind, sd), task)
-                    ok, steps = res["success"], res["steps"]
+                    ok, steps = res.success, res.steps
                 else:
                     ag = ReflexionAgent(get_llm(llm_kind, sd))
                     trials = ag.run_task(task)
@@ -141,45 +171,47 @@ def run_baselines(seed: int, llm_kind: str) -> dict:
                     wins += ok
                     ttc += steps if ok else FAIL_TTC
                     n += 1
-        out[name] = {"success": wins / n, "ttc": ttc / n}
+        out[name] = Metrics(wins / n, ttc / n)
     return out
 
 
-def run_experiment(seed: int, llm_kind: str, out_dir: Path) -> dict:
-    sa, n_sft, n_dpo = collect_predeployment(seed, llm_kind, out_dir)
-    res = {"n_sft": n_sft, "n_dpo": n_dpo}
-    res["muse_noadapt"] = run_muse(seed, llm_kind, _clone_sa(sa), adapt=False)
-    res["muse_adapt"] = run_muse(seed, llm_kind, sa, adapt=True)
-    res.update(run_baselines(seed, llm_kind))
-    return res
+def run_experiment(seed: int, llm_kind: str, out_dir: Path) -> ExperimentResult:
+    pre = collect_predeployment(seed, llm_kind, out_dir)
+    return ExperimentResult(
+        pre.n_sft, pre.n_dpo,
+        muse_noadapt=run_muse(seed, llm_kind, _clone_sa(pre.sa), adapt=False),
+        muse_adapt=run_muse(seed, llm_kind, pre.sa, adapt=True),
+        baselines=run_baselines(seed, llm_kind),
+    )
 
 
-def render(res: dict) -> str:
-    rows = [
-        ("ReAct (no memory)", res["ReAct"]["success"], res["ReAct"]["ttc"], "—", "—"),
-        ("Reflexion", res["Reflexion"]["success"], res["Reflexion"]["ttc"], "—", "—"),
-        ("MUSE (no adaptation)", res["muse_noadapt"]["success"],
-         res["muse_noadapt"]["ttc"],
-         (f"{res['muse_noadapt']['meta_acc']:.2f}"
-          if res["muse_noadapt"]["meta_acc"] is not None else "—"),
-         f"{res['muse_noadapt']['auroc2']:.2f}"),
-        ("MUSE (5 adapt + 5 test)", res["muse_adapt"]["success"],
-         res["muse_adapt"]["ttc"],
-         (f"{res['muse_adapt']['meta_acc']:.2f}"
-          if res['muse_adapt']['meta_acc'] is not None else "—"),
-         f"{res['muse_adapt']['auroc2']:.2f}"),
-    ]
+def _fmt2(x: float) -> str:
+    """PT: 2 casas decimais; nan → n/a. EN: 2 decimals; nan → n/a."""
+    return "n/a" if x != x else f"{x:.2f}"
+
+
+def render(res: ExperimentResult) -> str:
+    def row(name: str, m: Metrics) -> str:
+        acc = f"{m.meta_acc:.2f}" if m.meta_acc is not None else "—"
+        return f"| {name} | {m.success:.2f} | {m.ttc:.2f} | {acc} | {_fmt2(m.auroc2)} |"
+
     out = ["# RESULTS — p04 MUSE (LLM implementation)\n",
            "Generated by `python -m papers.p04_muse.run --write-results` "
            "(fixed seed, MockLLM). Demonstrates the mechanism offline — does NOT "
            "reproduce the paper's numbers.\n",
-           f"SFT dataset: {res['n_sft']} episodes; DPO pairs: {res['n_dpo']} "
+           f"SFT dataset: {res.n_sft} episodes; DPO pairs: {res.n_dpo} "
            "(saved as sft.jsonl / dpo.jsonl; weight training does not run "
            "offline — there are no weights with MockLLM).\n",
            "| agent | success | time-to-completion (fail=100) | metacog. acc. | AUROC2 |",
-           "|---|---|---|---|---|"]
-    for r in rows:
-        out.append("| " + " | ".join(str(x) for x in r) + " |")
+           "|---|---|---|---|---|",
+           row("ReAct (no memory)", res.baselines["ReAct"]),
+           row("Reflexion", res.baselines["Reflexion"]),
+           row("MUSE (no adaptation)", res.muse_noadapt),
+           row("MUSE (5 adapt + 5 test)", res.muse_adapt),
+           "",
+           "\\* AUROC2 shows `n/a` when the run's labels are single-class "
+           "(e.g. the no-adaptation agent either always fails or always "
+           "succeeds, so no positive/negative pair exists to rank)."]
     return "\n".join(out) + "\n"
 
 

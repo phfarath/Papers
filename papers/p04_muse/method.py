@@ -30,6 +30,7 @@ import numpy as np
 from papers.common.embeddings import Embedder, HashingEmbedder
 from papers.common.llm import LLM, task_prompt
 from papers.envs.household import HouseholdEnv, TaskSpec, score_actions
+from papers.p02_reflexion.prompts import reflection_body
 from papers.p04_muse.prompts import first_action
 
 CHUNK = 4           # PT: pares ação-observação por chunk. EN: pairs per chunk.
@@ -42,34 +43,72 @@ FAIL_TTC = 100      # PT: penalidade de ttc em falha. EN: failure ttc penalty.
 # ---------------------------------------------------------------------------
 
 class SelfAssessment:
-    """PT: g_η logístico sobre concat(emb(τ_chunk+P^e), emb(I)).
+    """PT: g_η é um MLP real (1 camada escondida tanh, saída sigmoid, BCE —
+    Eq. 6/7) sobre concat(emb(τ_chunk+P^e), emb(I)). Backprop em numpy;
+    inicialização com seed fixa.
 
-    EN: logistic g_η over concat(emb(chunk+plan), emb(task)) — Eq. 6/7.
+    EN: g_η is a real MLP (1 hidden tanh layer, sigmoid output, BCE — Eq. 6/7)
+    over concat(emb(chunk+plan), emb(task)). Numpy backprop; fixed-seed init.
     """
 
-    def __init__(self, embedder: Embedder | None = None, lr: float = 0.5) -> None:
+    def __init__(self, embedder: Embedder | None = None, lr: float = 0.5,
+                 hidden: int = 64, seed: int = 0) -> None:
         self.emb = embedder or HashingEmbedder()
         self.lr = lr
-        self.w: np.ndarray | None = None
-        self.b = 0.0
+        self.hidden = hidden
+        self._rng = np.random.default_rng(seed)
+        self.w1: np.ndarray | None = None  # (in_dim, hidden)
+        self.b1: np.ndarray | None = None  # (hidden,)
+        self.w2: np.ndarray | None = None  # (hidden,)
+        self.b2 = 0.0
+
+    # PT: compatibilidade com código que checa "treinado?" — w era o vetor
+    # logístico; agora expomos .w como alias de w2.
+    @property
+    def w(self) -> np.ndarray | None:
+        return self.w2
+
+    @w.setter
+    def w(self, value: np.ndarray | None) -> None:
+        self.w2 = value
 
     def _x(self, traj_text: str, task: str) -> np.ndarray:
         e = self.emb.embed([traj_text, task])
         return np.concatenate([e[0], e[1]])
 
+    def _ensure_init(self, in_dim: int) -> None:
+        if self.w1 is None:
+            scale = 1.0 / np.sqrt(in_dim)
+            self.w1 = self._rng.normal(0.0, scale, (in_dim, self.hidden))
+            self.b1 = np.zeros(self.hidden)
+            self.w2 = self._rng.normal(0.0, 0.1, self.hidden)
+            self.b2 = 0.0
+
+    def _forward(self, x: np.ndarray) -> tuple[np.ndarray, float]:
+        """PT: h=tanh(xW1+b1); p=σ(h·w2+b2). EN: forward pass."""
+        h = np.tanh(x @ self.w1 + self.b1)  # type: ignore[operator]
+        z = h @ self.w2 + self.b2  # type: ignore[operator]
+        return h, float(1 / (1 + np.exp(-z)))
+
     def predict(self, traj_text: str, task: str) -> float:
-        if self.w is None:
+        if self.w2 is None:
             return 0.5
-        return float(1 / (1 + np.exp(-(self._x(traj_text, task) @ self.w + self.b))))
+        return self._forward(self._x(traj_text, task))[1]
 
     def train_step(self, traj_text: str, task: str, y: float) -> float:
         x = self._x(traj_text, task)
-        if self.w is None:
-            self.w = np.zeros(x.shape[0], dtype=np.float64)
-        p = 1 / (1 + np.exp(-(x @ self.w + self.b)))
-        # PT: gradiente da BCE com sigmoid: (p − y)·x. EN: BCE+sigmoid gradient.
-        self.w -= self.lr * (p - y) * x
-        self.b -= self.lr * (p - y)
+        self._ensure_init(x.shape[0])
+        h, p = self._forward(x)
+        # PT: BCE+sigmoid → dz = p − y; backprop pela camada tanh.
+        # EN: BCE+sigmoid → dz = p − y; backprop through the tanh layer.
+        dz = p - y
+        dw2 = dz * h
+        dh = dz * self.w2  # type: ignore[operator]
+        dh *= 1 - h * h  # tanh'
+        self.w2 -= self.lr * dw2  # type: ignore[operator]
+        self.b2 -= self.lr * dz
+        self.w1 -= self.lr * np.outer(x, dh)  # type: ignore[operator]
+        self.b1 -= self.lr * dh  # type: ignore[operator]
         return float(p)
 
 
@@ -155,7 +194,6 @@ class MuseAgent:
         success = env.done
         # PT: reflexão em falhas (§4.1.3). EN: reflect on failures.
         if not success:
-            from papers.p02_reflexion.prompts import reflection_body
             body = reflection_body(spec.description, traj, "failure",
                                    self.reflections)
             self.reflections = (self.reflections + [
@@ -166,7 +204,8 @@ class MuseAgent:
         return success, traj
 
 
-def adapt_online(sa: SelfAssessment, replay: list, epochs: int = 3,
+def adapt_online(sa: SelfAssessment,
+                 replay: list[tuple[str, str, float]], epochs: int = 3,
                  rng: random.Random | None = None) -> None:
     """PT: adaptação online de g_η com replay buffer (Algoritmo 4).
 
@@ -182,20 +221,24 @@ def adapt_online(sa: SelfAssessment, replay: list, epochs: int = 3,
 # Datasets SFT / DPO (definições do paper; treino de pesos não roda offline)
 # ---------------------------------------------------------------------------
 
-def build_sft_dataset(episodes: list[tuple[TaskSpec, bool, list]]) -> list[dict]:
+def build_sft_dataset(
+    episodes: list[tuple[TaskSpec, bool, list[tuple[str, str]]]],
+) -> list[dict[str, object]]:
     """PT: SFT = episódios de sucesso. EN: SFT = successful episodes only."""
     return [{"task": s.task_id, "trajectory": [a for a, _ in traj]}
             for s, ok, traj in episodes if ok]
 
 
-def build_dpo_dataset(episodes: list[tuple[TaskSpec, bool, list, str]]) -> list[dict]:
+def build_dpo_dataset(
+    episodes: list[tuple[TaskSpec, bool, list[tuple[str, str]], str]],
+) -> list[dict[str, object]]:
     """PT: par DPO (chosen, rejected) por tarefa: reflexão positiva = falha em
     e_i e sucesso em e_{i+1}; negativa = o inverso.
 
     EN: DPO pair per task: positive reflection = fail e_i then success e_{i+1};
     negative = the inverse.
     """
-    by_task: dict[str, list] = {}
+    by_task: dict[str, list[tuple[bool, str]]] = {}
     for spec, ok, _traj, refl in episodes:
         by_task.setdefault(spec.task_id, []).append((ok, refl))
     out = []
@@ -211,7 +254,7 @@ def build_dpo_dataset(episodes: list[tuple[TaskSpec, bool, list, str]]) -> list[
     return out
 
 
-def write_jsonl(rows: list[dict], path: Path) -> None:
+def write_jsonl(rows: list[dict[str, object]], path: Path) -> None:
     path.write_text("".join(json.dumps(r) + "\n" for r in rows),
                     encoding="utf-8")
 

@@ -28,7 +28,7 @@ import random
 import re
 from dataclasses import dataclass, field
 
-from papers.common.llm import mock_handler
+from papers.common.llm import LLM, mock_handler, task_prompt
 from papers.common.utils import token_set
 from papers.envs import StepResult
 
@@ -517,16 +517,25 @@ def _household_act(prompt: str, rng: random.Random) -> str:
     return score_actions(task, obs, actions, memory, recent, rng)
 
 
+@dataclass
+class EpisodeResult:
+    """PT: resultado de um episódio. EN: result of one episode."""
+
+    task_id: str
+    success: bool
+    score: float
+    steps: int
+    trajectory: list[tuple[str, str]]
+
+
 def run_episode(
-    llm, task: TaskSpec, memory_lines: list[str] | None = None,
+    llm: LLM, task: TaskSpec, memory_lines: list[str] | None = None,
     reflections: list[str] | None = None, seed_rng: random.Random | None = None,
-) -> dict:
+) -> EpisodeResult:
     """PT: roda um episódio com a política "household.act".
 
     EN: runs one episode with the "household.act" policy.
     """
-    from papers.common.llm import task_prompt
-
     env = HouseholdEnv(task)
     obs = env.reset()
     mem = list(memory_lines or []) + list(reflections or [])
@@ -554,7 +563,5 @@ def run_episode(
         obs = res.observation
         if res.done:
             break
-    return {
-        "task_id": task.task_id, "success": env.done, "score": env.score,
-        "steps": env.steps, "trajectory": trajectory,
-    }
+    return EpisodeResult(task.task_id, env.done, env.score, env.steps,
+                         trajectory)

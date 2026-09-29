@@ -16,6 +16,8 @@ operation budget (a cheap, deterministic timeout).
 
 from __future__ import annotations
 
+import contextlib
+import io
 from dataclasses import dataclass
 
 from papers.envs import StepResult
@@ -188,9 +190,6 @@ def run_skill_code(env: CraftWorld, code: str) -> str:
     EN: executes skill code in a restricted namespace (no dangerous builtins).
     Returns captured output or the error message (feedback loop à la Voyager).
     """
-    import contextlib
-    import io
-
     bot = BotAPI(env)
     safe_builtins = {
         "range": range, "len": len, "min": min, "max": max, "sum": sum,
@@ -198,7 +197,7 @@ def run_skill_code(env: CraftWorld, code: str) -> str:
         "bool": bool, "dict": dict, "list": list, "set": set, "abs": abs,
         "Exception": Exception, "for": None,
     }
-    ns: dict = {"__builtins__": safe_builtins, "bot": bot}
+    ns: dict[str, object] = {"__builtins__": safe_builtins, "bot": bot}
     buf = io.StringIO()
     try:
         with contextlib.redirect_stdout(buf):

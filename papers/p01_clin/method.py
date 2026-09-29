@@ -41,12 +41,13 @@ class ClinAgent:
     use_memory: bool = True
     structured: bool = True     # False = ablação free-form / free-form ablation
     memory: list[str] = field(default_factory=list)
+    meta: list[str] = field(default_factory=list)  # meta-memória / meta-memory
     memory_history: list[list[str]] = field(default_factory=list)  # S_k
     archive: list[tuple[list[str], float]] = field(default_factory=list)  # p/ meta
 
     # ---------- controller / executor ----------
     def _goal(self, spec: TaskSpec, obs: str, hist: str) -> str:
-        mem = self.memory + getattr(self, "meta", [])
+        mem = self.memory + self.meta
         body = (
             "You are the controller of a household agent. Output the next "
             "sub-goal (one line).\n"
@@ -58,7 +59,7 @@ class ClinAgent:
 
     def _act(self, spec: TaskSpec, goal: str, obs: str,
              actions: list[str], recent: list[str]) -> str:
-        mem = self.memory + getattr(self, "meta", [])
+        mem = self.memory + self.meta
         body = (
             "Map the goal to ONE valid action. Reply with ONLY the action.\n"
             f"Task: {spec.description}\nGoal: {goal}\nObservation: {obs}\n"

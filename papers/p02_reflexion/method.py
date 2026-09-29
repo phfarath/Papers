@@ -19,11 +19,12 @@ the internal evaluator.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 
 from papers.common.llm import LLM, task_prompt
 from papers.envs.household import HouseholdEnv, TaskSpec, score_actions
-from papers.p02_reflexion.prompts import reflection_body
+from papers.p02_reflexion.prompts import CodeProblem, reflection_body
 
 
 @dataclass
@@ -89,8 +90,6 @@ class ReflexionAgent:
     # ---------- loop de trials / trial loop ----------
     def run_task(self, spec: TaskSpec) -> list[TrialResult]:
         """PT: loop completo sobre uma tarefa. EN: full loop on one task."""
-        import random
-
         results: list[TrialResult] = []
         for _ in range(self.max_trials):
             env = HouseholdEnv(spec)
@@ -125,11 +124,11 @@ class ReflexionAgent:
 # ---------------------------------------------------------------------------
 
 def run_tests(code: str, tests: list[str]) -> tuple[bool, str]:
-    """PT: evaluator interno — executa os testes auto-gerados num namespace.
+    """PT: evaluator — executa testes num namespace e devolve o 1º FAIL.
 
-    EN: internal evaluator — runs the self-generated tests in a namespace.
+    EN: evaluator — runs tests in a namespace and returns the first FAIL.
     """
-    ns: dict = {}
+    ns: dict[str, object] = {}
     try:
         exec(code, ns)  # noqa: S102 - toy sandbox
         for t in tests:
@@ -141,31 +140,65 @@ def run_tests(code: str, tests: list[str]) -> tuple[bool, str]:
     return True, "PASS"
 
 
-def reflexion_code_loop(llm: LLM, task: dict, use_reflection: bool,
-                        max_trials: int = 4) -> tuple[bool, int, list[str]]:
-    """PT: loop Reflexion no setting de código. EN: Reflexion loop for code."""
+@dataclass
+class CodeLoopResult:
+    """PT: resultado do loop de programação. EN: code-loop result.
+
+    `internal_ok` = passou nos testes auto-gerados; `hidden_ok` = pass@1 nos
+    testes escondidos (a medida real de sucesso — paper §4.2, internal tests
+    podem dar falsos positivos).
+    """
+
+    internal_ok: bool
+    hidden_ok: bool
+    n_trials: int
+
+
+def derive_internal_tests(llm: LLM, problem: CodeProblem) -> list[str]:
+    """PT: testes internos derivados SOMENTE dos exemplos da docstring
+    (task "code.tests"). EN: internal tests derived ONLY from the docstring
+    examples — like the paper's self-generated unit tests."""
+    body = (
+        "Generate unit tests (one per line, 'f(args) == expected') using ONLY "
+        "the examples in the docstring.\n"
+        f"Function: {problem.name}\nSignature: {problem.sig}\n"
+        f"Doc: {problem.doc}"
+    )
+    out = llm.complete(task_prompt("code.tests", body))
+    return [ln.strip() for ln in out.splitlines() if "==" in ln]
+
+
+def reflexion_code_loop(llm: LLM, problem: CodeProblem,
+                        use_reflection: bool,
+                        max_trials: int = 4) -> CodeLoopResult:
+    """PT: loop Reflexion de código: escreve → testes INTERNOS → reflexão.
+    Sucesso real medido nos testes ESCONDIDOS ao final.
+    EN: Reflexion code loop: write → INTERNAL tests → reflection. True success
+    measured on the HIDDEN tests at the end."""
+    internal = derive_internal_tests(llm, problem)
     mem: list[str] = []
-    trials: list[str] = []
+    code = ""
+    internal_ok = False
+    n_trials = 0
     for _ in range(max_trials):
+        n_trials += 1
         body = (
-            f"Implement the function below in Python. Reply with ONLY code.\n"
-            f"Function: {task['name']}\nSignature: {task['sig']}\n"
-            f"Doc: {task['doc']}\n"
+            "Implement the function below in Python. Reply with ONLY code.\n"
+            f"Function: {problem.name}\nSignature: {problem.sig}\n"
+            f"Doc: {problem.doc}\n"
             + ("Reflections:\n" + "\n".join(f"- {m}" for m in mem) + "\n"
                if mem else "")
         )
         code = llm.complete(task_prompt("code.write", body))
-        ok, report = run_tests(code, task["tests"])
-        trials.append(code)
-        if ok:
-            return True, len(trials), trials
-        if use_reflection:
-            rbody = (
-                f"Reflect briefly on this failed submission.\n"
-                f"Task: {task['name']} — {task['doc']}\n{report}\n"
-                f"Code:\n{code}"
-            )
-            mem = (mem + [llm.complete(task_prompt("code.reflect", rbody))])[-3:]
-        else:
-            break  # PT: sem reflexão não há aprendizado. EN: no learning w/o it.
-    return False, len(trials), trials
+        internal_ok, report = run_tests(code, internal)
+        if internal_ok:
+            break
+        if not use_reflection:
+            break  # PT: sem reflexão não há aprendizado. EN: no learning.
+        rbody = (
+            "Reflect briefly on this failed submission.\n"
+            f"Task: {problem.name} — {problem.doc}\n{report}\nCode:\n{code}"
+        )
+        mem = (mem + [llm.complete(task_prompt("code.reflect", rbody))])[-3:]
+    hidden_ok, _ = run_tests(code, problem.hidden)
+    return CodeLoopResult(internal_ok, hidden_ok, n_trials)
