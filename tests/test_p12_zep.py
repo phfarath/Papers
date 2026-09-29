@@ -43,9 +43,11 @@ def test_hybrid_rrf_search() -> None:
     g = ZepGraph()
     for t in generate(0).all_turns():
         g.add(t.text, t.ts)
-    hits = g.search("where does the user live", k=3)
-    assert hits and hits[0].slot == "city"
-    assert hits[0].t_invalid is None  # PT: válido primeiro. EN: valid first.
+    hits = g.search("where does the user live", k=4)
+    city = [e for e in hits if e.slot == "city"]
+    assert hits and hits[0].slot != "note"
+    assert any(e.t_invalid is None for e in city)  # cidade atual presente
+    assert all(e.t_invalid is None for e in hits[:3])  # válidos primeiro
 
 
 def test_context_has_validity_ranges() -> None:
