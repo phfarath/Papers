@@ -52,6 +52,7 @@ class Edge:
 
 class ZepGraph:
     """PT: grafo temporal do Zep. EN: Zep temporal graph."""
+    name = "zep-graph"
 
     def __init__(self, embedder: Embedder | None = None) -> None:
         self._index = VectorIndex(embedder or HashingEmbedder())

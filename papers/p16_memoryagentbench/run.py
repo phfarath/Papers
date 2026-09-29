@@ -56,7 +56,7 @@ def experiment(seed: int, llm: LLM) -> tuple[list[Row], int]:
     rows: list[Row] = []
     for m in systems + [trunc, oracle]:
         r = _eval(m, bench, llm)
-        name = getattr(m, "name", "?")
+        name = m.name
         if m is oracle:
             name = "FullContext (oracle, untruncated)"
         elif m is trunc:

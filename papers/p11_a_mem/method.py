@@ -35,6 +35,7 @@ class Note:
 
 
 class AMemMemory:
+    name = "a_mem"
     """PT: memória A-MEM: construção de notas + links + evolução.
     EN: A-MEM memory: note construction + links + neighbor evolution."""
 

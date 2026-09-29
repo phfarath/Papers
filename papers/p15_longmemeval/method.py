@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import random
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import papers.p15_longmemeval.prompts  # noqa: F401 — registra handlers
 from papers.common.conv_data import ConvSet, Question, Turn
@@ -88,7 +88,6 @@ def load_official(path: str) -> ConvSet:
     for it in items:
         for i, sess in enumerate(it.get("haystack_sessions", [])):
             date = it.get("haystack_dates", ["2024-01-01"] * 100)[i]
-            from datetime import datetime
             ts = datetime.fromisoformat(date[:10])
             sessions.append([Turn(t.get("role", "user"),
                                   t.get("content", ""), ts) for t in sess])

@@ -47,7 +47,7 @@ def eval_memory(mem, data: ConvSet, llm: LLM, k: int = 8,
             int(judge_answer(llm, q.question, q.gold, pred)))
     allv = [v for vs in by.values() for v in vs]
     return EvalResult(
-        name or getattr(mem, "name", type(mem).__name__),
+        name or mem.name,
         sum(allv) / len(allv) if allv else 0.0,
         {qt: (sum(vs) / len(vs) if vs else 0.0) for qt, vs in by.items()})
 

@@ -57,6 +57,7 @@ class Msg:
 
 
 class MemGPTAgent:
+    name = "memgpt"
     """PT: agente MemGPT com loop de chamadas de função + heartbeat chaining.
     EN: MemGPT agent with a function-call loop + heartbeat chaining."""
 

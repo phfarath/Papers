@@ -80,7 +80,7 @@ def experiment(seed: int, llm: LLM, data: ConvSet | None = None):
     for m in systems + [oracle]:
         m.reset()
         r = _eval_system(m, data, llm)
-        r.name = getattr(m, "name", "oracle")
+        r.name = m.name
         if m is oracle:
             r.name = "FullContext (oracle, untruncated)"
         rows_short.append(r)
@@ -88,7 +88,7 @@ def experiment(seed: int, llm: LLM, data: ConvSet | None = None):
     for m in systems + [oracle]:
         m.reset()
         r = _eval_system(m, long_data, llm)
-        r.name = getattr(m, "name", "oracle")
+        r.name = m.name
         if m is oracle:
             r.name = "FullContext (oracle, untruncated)"
         rows_long.append(r)

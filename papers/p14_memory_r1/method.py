@@ -94,6 +94,7 @@ def fact_features(fact: str, sims: list[str]) -> np.ndarray:
 
 
 class MemoryR1Manager:
+    name = "memory_r1"
     """PT: manager do Memory-R1 — política sobre ops de memória.
     EN: Memory-R1 manager — policy over memory ops."""
 

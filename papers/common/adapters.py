@@ -17,6 +17,15 @@ from papers.common.memory_api import (
     MemorySystem,
 )
 
+# PT: imports no topo — o registry puxa os papers (nunca o contrário),
+# então não há ciclo. EN: top-level imports — the registry pulls the
+# papers (never the other way around), so there is no cycle.
+from papers.p10_memgpt.adapter import MemGPTAdapter
+from papers.p11_a_mem.adapter import AMemAdapter
+from papers.p12_zep.adapter import ZepAdapter
+from papers.p13_mem0.adapter import Mem0Adapter, Mem0gAdapter
+from papers.p14_memory_r1.adapter import MemoryR1Adapter
+
 
 def all_memory_systems(llm: LLM,
                        embedder: Embedder | None = None) -> list[MemorySystem]:
@@ -28,15 +37,6 @@ def all_memory_systems(llm: LLM,
         BM25Memory(),
         EmbeddingRAGMemory(emb),
     ]
-    # PT: imports tardios aqui de propósito — o registry puxa os papers, e
-    # nunca o contrário. EN: late imports on purpose — the registry pulls the
-    # papers, never the other way around.
-    from papers.p10_memgpt.adapter import MemGPTAdapter
-    from papers.p11_a_mem.adapter import AMemAdapter
-    from papers.p12_zep.adapter import ZepAdapter
-    from papers.p13_mem0.adapter import Mem0Adapter, Mem0gAdapter
-    from papers.p14_memory_r1.adapter import MemoryR1Adapter
-
     systems += [
         MemGPTAdapter(llm, emb),
         AMemAdapter(llm, emb),

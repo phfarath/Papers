@@ -19,8 +19,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from papers.common.embeddings import Embedder, HashingEmbedder
+from papers.common.facts import SLOT_SYNONYMS
 from papers.common.llm import LLM, task_prompt
 from papers.common.retrieval import VectorIndex
+from papers.common.utils import token_set
 from papers.p13_mem0 import prompts  # noqa: F401
 
 LAST_N_MSGS = 10
@@ -40,6 +42,7 @@ class MemStats:
 
 
 class Mem0Memory:
+    name = "mem0"
     """PT: Mem0 — extração + update phase com ADD/UPDATE/DELETE/NOOP.
     EN: Mem0 — extraction + update phase with ADD/UPDATE/DELETE/NOOP."""
 
@@ -131,24 +134,42 @@ class Mem0Memory:
 
 @dataclass
 class Triple:
-    """PT: aresta do Mem0g — (entidade, relação, objeto, válida?).
-    EN: Mem0g edge — (entity, relation, object, valid?)."""
+    """PT: aresta do Mem0g — (entidade, relação, objeto, válida?) com
+    intervalo de validade. EN: Mem0g edge — (entity, relation, object,
+    valid?) with a validity interval."""
     subj: str
     rel: str
     obj: str
     valid: bool = True
+    since: datetime | None = None
+    until: datetime | None = None
+
+    @staticmethod
+    def _fmt(d: datetime | None) -> str:
+        return d.strftime("%Y-%m-%d") if d else "?"
 
     def text(self) -> str:
-        return f"{self.subj} | {self.rel} | {self.obj}"
+        # PT: render legível que o leitor entende (fato + validade).
+        # EN: readable render the reader understands (fact + validity).
+        end = self._fmt(self.until) if self.until else "present"
+        return (f"{self.subj}'s {self.rel} is {self.obj} "
+                f"(valid: {self._fmt(self.since)} → {end})")
+
+    def key(self) -> str:
+        # PT: texto indexado (sem o intervalo). EN: indexed text (no range).
+        return f"{self.subj}'s {self.rel} is {self.obj}"
 
 
 class Mem0gMemory:
+    name = "mem0g"
     """PT: variante em grafo do Mem0 — fatos viram arestas; conflitos
     invalidam a aresta antiga (não apagam). EN: Mem0 graph variant —
     facts become edges; conflicts invalidate the old edge (not delete)."""
 
     def __init__(self, llm: LLM, embedder: Embedder | None = None) -> None:
         self._inner = Mem0Memory(llm, embedder)
+        self._emb = embedder or HashingEmbedder()
+        self._index = VectorIndex(self._emb)
         self.edges: list[Triple] = []
         self.invalidated = 0
 
@@ -171,11 +192,50 @@ class Mem0gMemory:
             for t in self.edges:
                 if t.valid and t.subj == subj and t.rel == rel:
                     t.valid = False
+                    t.until = ts
                     self.invalidated += 1
-            self.edges.append(Triple(subj, rel, obj))
+            edge = Triple(subj, rel, obj, True, ts, None)
+            self.edges.append(edge)
+            self._index.add(f"e{len(self.edges)}", edge.key())
 
     def retrieve(self, query: str, k: int = 5) -> list[str]:
-        q = set(query.lower().split())
-        hits = [t.text() for t in self.edges if t.valid and
-                q & set(t.text().lower().split())]
-        return hits[:k] or [t.text() for t in self.edges if t.valid][:k]
+        """PT: recuperação entidade-cêntrica + semântica de triplas (paper
+        §3.2 graph): identifica nome+slot na query via sinônimos e devolve
+        TODAS as arestas daquele (entidade, slot) — válidas e invalidadas
+        com seus intervalos (necessário para perguntas temporais) — mais o
+        top-k semântico sobre o texto renderizado das triplas.
+        EN: entity-centric + semantic triplet retrieval (paper §3.2):
+        resolve name+slot in the query via synonyms and return ALL edges
+        of that (entity, slot) — valid and invalidated with intervals
+        (needed for temporal questions) — plus semantic top-k over the
+        rendered triplet text."""
+        qt = token_set(query)
+        qslots = {s for s, sy in SLOT_SYNONYMS.items()
+                  if sy & qt or s in qt}
+        m = re.search(r"\b([A-Z][a-zA-Z]+)\b", query)
+        name = m.group(1) if m else None
+        wants_past = bool(re.search(
+            r"\b(before|previous|previously|used to|originally|earlier|"
+            r"did|had|was|were|still|no longer)\b", query.lower()))
+        picked: list[Triple] = []
+        # PT: arestas entidade-cêntricas do slot perguntado (todas).
+        # EN: entity-centric edges of the asked slot (all of them).
+        centric = [t for t in self.edges
+                   if (name is None or t.subj == name)
+                   and (not qslots or t.rel in qslots)
+                   and (t.valid or wants_past)]
+        picked += centric
+        # PT: top-k semântico sobre o texto da tripla (query expandida por
+        # sinônimos de slot). EN: semantic top-k over triplet text
+        # (slot-synonym expanded query).
+        extra = " ".join(sorted({w for sy in SLOT_SYNONYMS.values()
+                                 for w in sy if sy & qt}))
+        expanded = f"{query} {extra}" if extra else query
+        for d, _ in self._index.search(expanded, k * 2):
+            t = self.edges[int(d[1:]) - 1]
+            if t.valid or wants_past:
+                if t not in picked:
+                    picked.append(t)
+        picked = picked[:max(k, len(centric))]
+        return [t.text() for t in picked] or [
+            t.text() for t in self.edges if t.valid][:k]
