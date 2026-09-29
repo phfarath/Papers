@@ -46,7 +46,12 @@ python -m papers.p03_memrl.run --seed 0 --llm mock --write-results
 ```
 
 ### O que observar
-- MemRL deve superar RAG (λ=0) e o baseline sem memória ao longo das épocas.
+- MemRL (λ>0) deve superar RAG por similaridade (λ=0) — os distratores usam a
+  redação exata da tarefa, então λ=0 os injeta sempre; com λ>0 o Q aprendido os
+  rebaixa. O baseline sem memória fica próximo do MemRL: os distratores são um
+  handicap que o MemRL precisa vencer, não uma vantagem gratuita.
+- A ablação de λ deve ser NÃO-plana (λ=0 baixo, λ→1 melhor), e a correlação
+  Q×sucesso deve ser positiva.
 - A tabela de Q aprendidos deve ranquear experiências úteis acima de
   distratores — mas note que um distrator pode ter Q alto se funcionou em
   algumas tarefas (o Q estima utilidade empírica, não "verdade").
