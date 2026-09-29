@@ -21,12 +21,19 @@ Columns: `cum.` = cumulative success rate (any of the 4 trials); `post-1` = succ
 | t11 | clean_mug | v1 | 1.00 | 0.88 | 1.00 | 0.43 |
 | t12 | two_in_box | v2 | 0.25 | 0.25 | 0.05 | 0.05 |
 
-## Programming (tasks solved within 4 trials, 6 seeds)
+## Programming (pass@1 on HIDDEN tests, 6 seeds)
 
-| function | Reflexion | baseline |
-|---|---|---|
-| double | 6/6 | 2/6 |
-| is_even | 6/6 | 2/6 |
-| fib | 6/6 | 2/6 |
-| reverse_words | 6/6 | 2/6 |
-| clamp | 6/6 | 2/6 |
+Internal tests are derived only from docstring examples (task `code.tests`). `FP` = cases that passed the internal tests but failed the hidden ones — the false positives the paper discusses (self-generated tests may not cover edge cases).
+
+| function | Reflexion pass@1 | baseline pass@1 | internal pass | internal→hidden FP |
+|---|---|---|---|---|
+| double | 1.00 | 0.33 | 1.00 | 0 |
+| is_even | 1.00 | 0.33 | 1.00 | 0 |
+| fib | 1.00 | 0.33 | 1.00 | 0 |
+| reverse_words | 1.00 | 0.33 | 1.00 | 0 |
+| square_list | 1.00 | 0.33 | 1.00 | 0 |
+| clamp | 0.33 | 0.33 | 1.00 | 4 |
+| sum_digits | 0.33 | 0.33 | 1.00 | 4 |
+| is_palindrome | 0.33 | 0.33 | 1.00 | 4 |
+
+Internal-vs-hidden agreement is implied by `internal pass` vs `Reflexion pass@1`: identical rows mean the self-generated tests were sufficient; FP>0 rows show where they were not.

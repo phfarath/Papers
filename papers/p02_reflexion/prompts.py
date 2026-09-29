@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import random
 import re
+from dataclasses import dataclass
 
 from papers.common.llm import mock_handler
 
@@ -109,16 +110,21 @@ def _reflect(prompt: str, rng: random.Random) -> str:
 # ---------------------------------------------------------------------------
 
 # PT: mini-corpus "de conhecimento" do mock — como o conhecimento interno de um
-# LLM. Cada entrada: (código correto, bug_plausível).
-# EN: the mock's mini knowledge corpus — like an LLM's own knowledge.
+# LLM. Cada entrada: (código correto, bug plausível). Alguns bugs passam nos
+# testes internos derivados dos exemplos e só falham nos testes ESCONDIDOS
+# (edge cases) — o paper discute exatamente esse falso positivo.
+# EN: the mock's mini knowledge corpus — like an LLM's own knowledge. Each
+# entry: (correct code, plausible bug). Some bugs pass the internal tests
+# derived from docstring examples and only fail on HIDDEN edge-case tests —
+# the paper discusses exactly this false positive.
 _CORPUS: dict[str, tuple[str, str]] = {
     "double": (
         "def double(x):\n    return 2 * x",
-        "def double(x):\n    return 2 + x",
+        "def double(x):\n    return 2 + x",  # erra os exemplos / fails examples
     ),
     "is_even": (
         "def is_even(n):\n    return n % 2 == 0",
-        "def is_even(n):\n    return n % 2 == 1",
+        "def is_even(n):\n    return n % 2 == 1",  # fails examples
     ),
     "fib": (
         "def fib(n):\n    a, b = 0, 1\n"
@@ -128,32 +134,89 @@ _CORPUS: dict[str, tuple[str, str]] = {
     ),
     "reverse_words": (
         "def reverse_words(s):\n    return ' '.join(s.split()[::-1])",
-        "def reverse_words(s):\n    return s[::-1]",
+        "def reverse_words(s):\n    return s[::-1]",  # inverte caracteres
     ),
+    "square_list": (
+        "def square_list(xs):\n    return [x * x for x in xs]",
+        "def square_list(xs):\n    return [x * 2 for x in xs]",  # fails examples
+    ),
+    # Bugs "tricky": passam nos exemplos da docstring, falham em edge cases.
     "clamp": (
         "def clamp(x, lo, hi):\n    return max(lo, min(hi, x))",
-        "def clamp(x, lo, hi):\n    return max(lo, x)",
+        # PT: fixa o limite inferior em 0 — passa nos exemplos (lo=0).
+        # EN: hardcodes the lower bound at 0 — passes the examples (lo=0).
+        "def clamp(x, lo, hi):\n    return min(hi, x) if x > 0 else 0",
+    ),
+    "sum_digits": (
+        "def sum_digits(n):\n    return sum(int(d) for d in str(abs(n)))",
+        # PT: só soma 2 dígitos — passa nos exemplos, falha em 3+ dígitos.
+        # EN: only sums 2 digits — passes the examples, fails on 3+ digits.
+        "def sum_digits(n):\n    return n // 10 + n % 10",
+    ),
+    "is_palindrome": (
+        "def is_palindrome(s):\n    return s == s[::-1]",
+        # PT: exige len>2 — passa nos exemplos, falha em 'aa'/''.
+        # EN: requires len>2 — passes the examples, fails on 'aa'/''.
+        "def is_palindrome(s):\n    return len(s) > 2 and s == s[::-1]",
     ),
 }
 
-CODE_TASKS: list[dict] = [
-    {"name": "double", "sig": "double(x)",
-     "doc": "Return twice the input number.",
-     "tests": ["double(3) == 6", "double(-2) == -4", "double(0) == 0"]},
-    {"name": "is_even", "sig": "is_even(n)",
-     "doc": "Return True iff n is even.",
-     "tests": ["is_even(4) == True", "is_even(3) == False", "is_even(0) == True"]},
-    {"name": "fib", "sig": "fib(n)",
-     "doc": "Return the n-th Fibonacci number with fib(0)=0, fib(1)=1.",
-     "tests": ["fib(0) == 0", "fib(1) == 1", "fib(6) == 8"]},
-    {"name": "reverse_words", "sig": "reverse_words(s)",
-     "doc": "Reverse the order of words in the sentence s.",
-     "tests": ["reverse_words('a b c') == 'c b a'",
-               "reverse_words('hello') == 'hello'"]},
-    {"name": "clamp", "sig": "clamp(x, lo, hi)",
-     "doc": "Clamp x into the inclusive range [lo, hi].",
-     "tests": ["clamp(5, 0, 10) == 5", "clamp(-1, 0, 10) == 0",
-               "clamp(99, 0, 10) == 10"]},
+
+@dataclass
+class CodeProblem:
+    """PT: problema de código com exemplos na docstring + testes escondidos.
+
+    EN: coding problem with docstring examples + hidden edge-case tests.
+    """
+
+    name: str
+    sig: str
+    doc: str
+    hidden: list[str]
+
+
+CODE_PROBLEMS: list[CodeProblem] = [
+    CodeProblem("double", "double(x)",
+                "Return twice the input number. "
+                "Examples: double(3) = 6, double(0) = 0.",
+                ["double(-2) == -4", "double(0.5) == 1.0", "double(10) == 20"]),
+    CodeProblem("is_even", "is_even(n)",
+                "Return True iff n is even. "
+                "Examples: is_even(4) = True, is_even(3) = False.",
+                ["is_even(0) == True", "is_even(-2) == True",
+                 "is_even(7) == False"]),
+    CodeProblem("fib", "fib(n)",
+                "Return the n-th Fibonacci number, fib(0)=0, fib(1)=1. "
+                "Examples: fib(0) = 0, fib(1) = 1, fib(6) = 8.",
+                ["fib(2) == 1", "fib(10) == 55", "fib(3) == 2"]),
+    CodeProblem("reverse_words", "reverse_words(s)",
+                "Reverse the order of words in s. "
+                "Examples: reverse_words('a b c') = 'c b a', "
+                "reverse_words('hi') = 'hi'.",
+                ["reverse_words('a  b') == 'b a'",
+                 "reverse_words('x y z w') == 'w z y x'"]),
+    CodeProblem("square_list", "square_list(xs)",
+                "Return the list of squared elements. "
+                "Examples: square_list([1, 2]) = [1, 4], "
+                "square_list([]) = [].",
+                ["square_list([-3]) == [9]", "square_list([0, 5]) == [0, 25]"]),
+    CodeProblem("clamp", "clamp(x, lo, hi)",
+                "Clamp x into the inclusive range [lo, hi]. "
+                "Examples: clamp(5, 0, 10) = 5, clamp(99, 0, 10) = 10, "
+                "clamp(-1, 0, 10) = 0.",
+                ["clamp(-5, -10, 0) == -5", "clamp(15, 10, 20) == 15",
+                 "clamp(25, 10, 20) == 20"]),
+    CodeProblem("sum_digits", "sum_digits(n)",
+                "Return the sum of the decimal digits of n. "
+                "Examples: sum_digits(12) = 3, sum_digits(5) = 5.",
+                ["sum_digits(999) == 27", "sum_digits(100) == 1",
+                 "sum_digits(12345) == 15"]),
+    CodeProblem("is_palindrome", "is_palindrome(s)",
+                "Return True iff s reads the same forwards and backwards. "
+                "Examples: is_palindrome('aba') = True, "
+                "is_palindrome('ab') = False.",
+                ["is_palindrome('aa') == True", "is_palindrome('') == True",
+                 "is_palindrome('abc') == False"]),
 ]
 
 
@@ -174,6 +237,28 @@ def _code_write(prompt: str, rng: random.Random) -> str:
     if has_reflection:
         return correct
     return buggy if rng.random() < 0.7 else correct
+
+
+@mock_handler("code.tests")
+def _code_tests(prompt: str, rng: random.Random) -> str:
+    """PT: evaluator INTERNO — deriva asserts SOMENTE dos exemplos da docstring
+    presente no prompt ("name(args) = value" → "name(args) == value"). Não conhece
+    os testes escondidos — como os testes auto-gerados do paper.
+
+    EN: INTERNAL evaluator — derives asserts ONLY from the docstring examples
+    in the prompt ("name(args) = value" → "name(args) == value"). It never sees
+    the hidden tests — like the paper's self-generated tests.
+    """
+    doc = ""
+    for line in prompt.splitlines():
+        if line.lower().startswith("doc:"):
+            doc = line[4:].strip()
+    tests: list[str] = []
+    for m in re.finditer(r"(\w+)\(([^()]*)\)\s*=\s*"
+                         r"(True|False|\[[^\]]*\]|'[^']*'|\"[^\"]*\"|-?[\d.]+)",
+                         doc):
+        tests.append(f"{m.group(1)}({m.group(2)}) == {m.group(3)}")
+    return "\n".join(tests)
 
 
 @mock_handler("code.reflect")

@@ -2,8 +2,13 @@
 
 from papers.common.llm import MockLLM
 from papers.envs.household import TASKS
-from papers.p02_reflexion.method import ReflexionAgent, reflexion_code_loop, run_tests
-from papers.p02_reflexion.prompts import CODE_TASKS
+from papers.p02_reflexion.method import (
+    ReflexionAgent,
+    derive_internal_tests,
+    reflexion_code_loop,
+    run_tests,
+)
+from papers.p02_reflexion.prompts import CODE_PROBLEMS
 
 
 def test_reflexion_improves_over_baseline_on_hard_task():
@@ -27,14 +32,22 @@ def test_omega_bound():
 
 def test_code_reflexion_fixes_bugs():
     wins = sum(
-        reflexion_code_loop(MockLLM(seed=s), t, use_reflection=True)[0]
-        for t in CODE_TASKS for s in range(3)
+        reflexion_code_loop(MockLLM(seed=s), t, use_reflection=True).hidden_ok
+        for t in CODE_PROBLEMS for s in range(3)
     )
     base = sum(
-        reflexion_code_loop(MockLLM(seed=s), t, use_reflection=False)[0]
-        for t in CODE_TASKS for s in range(3)
+        reflexion_code_loop(MockLLM(seed=s), t, use_reflection=False).hidden_ok
+        for t in CODE_PROBLEMS for s in range(3)
     )
     assert wins > base
+
+
+def test_internal_tests_derived_only_from_docstring():
+    prob = CODE_PROBLEMS[0]  # double: exemplos double(3)=6, double(0)=0
+    tests = derive_internal_tests(MockLLM(0), prob)
+    assert tests and all(t in prob.doc.replace(" = ", " == ") or "==" in t
+                         for t in tests)
+    assert "double(-2)" not in "\n".join(tests)  # hidden nunca vaza
 
 
 def test_run_tests():

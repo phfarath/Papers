@@ -33,7 +33,7 @@ repita até o Evaluator aprovar OU esgotar max_trials:
 | §3 Evaluator (heurística ALFWorld) | `method.py: ReflexionAgent.evaluate` |
 | §3 Self-Reflection / mem | `prompts.py: _reflect` (`reflexion.reflect`), `mem` limitado a Ω em `run_task` |
 | §4.1 ALFWorld | `envs/household.py` (tarefas + armadilhas) |
-| §4.3 Programação + testes auto-gerados | `method.py: run_tests`, `reflexion_code_loop`; `prompts.py: CODE_TASKS` |
+| §4.3 Programação + testes auto-gerados | `method.py: run_tests`, `derive_internal_tests`, `reflexion_code_loop`; `prompts.py: CODE_PROBLEMS`, handler `code.tests` (testes internos derivados SÓ dos exemplos da docstring) + testes escondidos (pass@1 real) |
 
 ### Como rodar
 ```bash
@@ -44,15 +44,19 @@ python -m papers.p02_reflexion.run --seed 0 --llm mock --write-results
 - **Household**: a coluna `post-1` (sucesso nas tentativas 2+, após a primeira
   reflexão) deve superar o baseline — é onde a memória verbal age.
 - **Programação**: o baseline repete o mesmo bug; o Reflexion corrige após a
-  reflexão citar o teste que falhou.
+  reflexão citar o teste que falhou. Pass@1 é medido em testes ESCONDIDOS —
+  as linhas com `internal→hidden FP` mostram os falsos positivos dos testes
+  auto-gerados (bug passa no interno, falha em edge case), como no paper.
 - `llm.calls` conta os prompts — o custo do Reflexion é ~uma reflexão por trial.
 
 ### Diferenças vs paper e limitações
 - O "LLM" é um MockLLM determinístico: as reflexões são geradas por regras sobre
   o TEXTO da trajetória (portas fechadas, dispositivos quebrados), não por um
   modelo real. O mecanismo (loop, Ω, tipos de memória) é fiel.
-- O evaluator interno de código usa testes fixos por tarefa, não gerados por um
-  LLM real; o mock "gera" código consultando um mini-corpus embutido.
+- O evaluator interno de código usa testes derivados dos exemplos da docstring
+  (handler `code.tests`), como os testes auto-gerados do paper; o sucesso real é
+  medido em testes escondidos separados. O mock "gera" código consultando um
+  mini-corpus embutido.
 - Números do RESULTS.md são do brinquedo, não do paper (paper: +22% no ALFWorld).
 
 ## 🇺🇸 English
