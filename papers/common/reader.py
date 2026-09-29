@@ -216,6 +216,25 @@ def _qa_answer(prompt: str, rng: random.Random) -> str:
             return f"no {slot}"
         return "I don't know"
 
+    # PT: perguntas de LISTAGEM ("list every X") → agrega os valores
+    # distintos das evidências (fatos extraídos ou substantivos após
+    # verbos de lugar). EN: LIST questions → aggregate distinct values
+    # across evidence (extracted facts or place nouns after verbs).
+    if re.search(r"\b(list every|list all|which \w+s|all the \w+s)\b",
+                 ql):
+        vals: list[str] = []
+        for f in cand:
+            for m in re.finditer(
+                    r"(?:visit|visiting|went to|traveled to|moved to|"
+                    r"live in|living in|settled in|stopover in) "
+                    r"([A-Z][a-zA-Z]+)", f[3]):
+                if m.group(1) not in vals:
+                    vals.append(m.group(1))
+            if f[1] and f[2] not in vals:
+                vals.append(f[2])
+        if vals:
+            return ", ".join(sorted(vals))
+
     # PT: escolha temporal — "now" prefere válido+mais recente; "before"
     # prefere o mais antigo/invalidado. EN: temporal choice — "now" prefers
     # valid+latest; "before" prefers the older/invalidated value.
@@ -223,8 +242,15 @@ def _qa_answer(prompt: str, rng: random.Random) -> str:
         return _ev_open(f[3]) and not _evidence_retracts(f[3], f[0], f[1])
 
     if wants_past:
-        cand.sort(key=lambda f: _ev_date(f[3]))
-        pick = cand[0]  # o valor mais antigo para esse slot
+        # PT: o valor anterior = o intervalo fechado mais recente
+        # (predecessor imediato); sem intervalos, o mais antigo. EN: the
+        # previous value = the most recently closed interval (immediate
+        # predecessor); without intervals, the oldest.
+        closed = [f for f in cand if not _ev_open(f[3])]
+        if closed:
+            pick = max(closed, key=lambda f: _ev_date(f[3]))
+        else:
+            pick = min(cand, key=lambda f: _ev_date(f[3]))
     else:
         valids = [f for f in cand if valid(f)]
         pool = valids or cand
@@ -261,10 +287,6 @@ def _normalize(s: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", s.lower()))
 
 
-def _normalize(s: str) -> str:
-    return " ".join(re.findall(r"[a-z0-9]+", s.lower()))
-
-
 @mock_handler("qa.judge")
 def _qa_judge(prompt: str, rng: random.Random) -> str:
     """PT: juiz mock — match normalizado/substring lido do prompt.
@@ -282,8 +304,11 @@ def _qa_judge(prompt: str, rng: random.Random) -> str:
     # PT: equivalência de abstenção — gold "not provided" ≈ pred "don't know".
     # EN: abstention equivalence — gold "not provided" ≈ pred "don't know".
     abst_g = gn in {"not provided", "unknown", "none", "not known", "na"}
-    abst_p = ("don't know" in pn or "not provided" in pn
-              or "unknown" in pn)
+    # PT: "I don't know" normaliza para "i don t know" — match por tokens.
+    # EN: "I don't know" normalizes to "i don t know" — token match.
+    ptoks = set(pn.split())
+    abst_p = (("don" in ptoks and "know" in ptoks)
+              or "not provided" in pn or "unknown" in pn)
     ok = bool(gn) and bool(pn) and (
         gn in pn or pn in gn or gn == pn or (abst_g and abst_p))
     return "yes" if ok else "no"

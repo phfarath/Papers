@@ -109,7 +109,11 @@ class MockLLM:
                 "MockLLM: prompt has no [[task:...]] marker on the first line; "
                 "use task_prompt(task, body) to build prompts."
             )
-        handler = self._handlers.get(task)
+        # PT: fallback ao registry vivo — handlers podem ser registrados
+        # depois da construção (imports tardios dos adapters). EN: fall back
+        # to the live registry — handlers may register after construction
+        # (lazy adapter imports).
+        handler = self._handlers.get(task) or _REGISTRY.get(task)
         if handler is None:
             raise KeyError(
                 f"MockLLM: no handler registered for task {task!r}. "
