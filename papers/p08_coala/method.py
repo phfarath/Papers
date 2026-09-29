@@ -19,6 +19,7 @@ from papers.envs.household import (
     EpisodeResult,
     HouseholdEnv,
     TaskSpec,
+    run_episode,
     score_actions,
 )
 from papers.p08_coala import prompts  # noqa: F401  (registra handlers)
@@ -141,5 +142,4 @@ class CoALAAgent:
 def run_react(llm: LLM, task: TaskSpec, seed: int = 0) -> EpisodeResult:
     """PT: baseline ReAct — mesmo env, sem LTM nem ciclo interno.
     EN: ReAct baseline — same env, no LTM, no internal cycle."""
-    from papers.envs.household import run_episode
     return run_episode(llm, task, seed_rng=random.Random(seed))

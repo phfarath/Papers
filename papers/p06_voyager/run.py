@@ -25,7 +25,7 @@ from papers.envs.craft import CraftWorld
 from papers.p06_voyager.method import milestones, run_episode
 from papers.p06_voyager.prompts import CHAIN  # noqa: F401
 
-ITERATIONS = 12
+ITERATIONS = 18
 MILESTONES = ["wooden_pickaxe", "stone_pickaxe", "iron_pickaxe", "diamond"]
 
 

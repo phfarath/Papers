@@ -38,18 +38,17 @@ Componentes (§3 do paper):
 
 - O `voyager.write_code` mock tem "conhecimento de mundo" (a árvore de
   receitas) — substituto do conhecimento do LLM real — mas só recebe o texto
-  do prompt (regra de honestidade). A 1ª tentativa é deliberadamente ingênua
-  (sem pré-requisitos) para o erro → correção no round 2, como no loop do
-  paper.
-- No currículo estritamente crescente do nosso toy, a biblioteca quase nunca
-  é reutilizada dentro do mesmo episódio (cada marco é visitado uma vez);
-  o efeito aparece no **zero-shot**: warm library resolve cada tarefa em
-  ~1 round vs ~1.5 a frio — análogo à Fig. 5 do paper.
-- `no-critic` é honestamente neutro aqui: como só código bem-sucedido seria
-  armazenado de qualquer forma, remover a verificação não muda o resultado
-  neste env (documentado — o mecanismo está implementado e testado).
-- `no-curriculum` sorteia tarefas aleatórias da árvore; é ruidoso por
-  natureza (pode acertar marcos cedo por sorte) — resultado reportado como é.
+  do prompt (regra de honestidade). O gerador injeta bug **por linha**
+  (`LINE_BUG_P=0.22`, erro de execução OU falha silenciosa de item errado):
+  cadeias longas para itens profundos falham frequentemente nos 4 rounds,
+  enquanto compor uma skill verificada (spliced intacta, só o delta é gerado)
+  mantém o programa curto e confiável — é por isso que `no-skill-library`
+  atrasa os marcos e `no-critic` polui a biblioteca com skills quebradas que
+  falham depois ao serem reusadas (reproduzindo a história causal do paper).
+- `no-curriculum` sorteia tarefas da lista COMPLETA de itens (`ITEMS`), com
+  pré-requisitos faltando — ruidoso por natureza; o milestone table mostra
+  o resultado honesto.
+- Efeito também visível no zero-shot: warm library ~1 round/tarefa vs frio.
 
 ### Rodar / Run
 

@@ -18,7 +18,7 @@ import random
 import re
 
 from papers.common.llm import mock_handler
-from papers.envs.craft import MINE_REQ, RECIPES, SMELTS
+from papers.envs.craft import ITEMS, MINE_REQ, RECIPES, SMELTS
 
 # PT: cadeia de marcos da árvore tecnológica (ordem do currículo implícito).
 # EN: tech-tree milestone chain (implicit curriculum order).
@@ -73,22 +73,14 @@ def _curriculum(prompt: str, rng: random.Random) -> str:
     return "explore the cave"
 
 
-def _code_for(item: str, include_req: bool) -> str:
-    """PT: gera código de skill para obter `item`, expandindo recursivamente os
-    pré-requisitos da árvore (o 'conhecimento de mundo' do mock).
-
-    EN: generates skill code to obtain `item`, recursively expanding tech-tree
-    prerequisites (the mock's 'world knowledge').
-    """
-    # PT: 1) acumula a demanda total de cada item (ferramentas e crafting_table
-    # contam uma vez — não são consumidos). EN: accumulate total demand per
-    # item (tools and crafting_table count once — they are not consumed).
+def _needs(item: str) -> dict[str, int]:
+    """PT: demanda total de cada item para obter `item` (pré-requisitos
+    recursivos). EN: total demand per item to obtain `item` (recursive
+    prerequisites)."""
     needs: dict[str, int] = {}
 
     def demand(it: str, n: int) -> None:
         needs[it] = needs.get(it, 0) + n
-        if not include_req:
-            return
         if it in MINE_REQ:
             req = MINE_REQ[it]
             if req:
@@ -104,12 +96,38 @@ def _code_for(item: str, include_req: bool) -> str:
             demand(SMELTS[it][0], SMELTS[it][1] * n)
 
     demand(item, 1)
-    # PT: 2) emite na ordem da árvore — insumos antes de quem os consome.
-    # EN: 2) emit in tech-tree order — inputs before their consumers.
+    return needs
+
+
+def _lines_for(needs: dict[str, int]) -> list[str]:
+    # PT: emite na ordem da árvore — insumos antes de quem os consome.
+    # EN: emit in tech-tree order — inputs before their consumers.
     order = CHAIN + [i for i in needs if i not in CHAIN]
-    lines = [f"bot.{_verb(it)}('{it}', {needs[it]})" for it in order
-             if it in needs]
-    return "\n".join(lines)
+    return [f"bot.{_verb(it)}('{it}', {needs[it]})" for it in order
+            if it in needs]
+
+
+LINE_BUG_P = 0.22  # PT: prob. de bug por linha emitida. EN: per-line bug prob.
+
+
+def _mutate(line: str, rng: random.Random) -> str:
+    """PT: muta uma linha do código — erro de execução OU falha silenciosa
+    (item errado: roda sem exceção mas a tarefa não é cumprida; é isso que o
+    critic pega). EN: mutate one code line — execution error OR silent
+    wrong-item failure (runs fine but the task fails; the critic catches it)."""
+    m = re.match(r"bot\.(mine|craft|smelt)\('(\w+)', (\d+)\)", line)
+    if not m:
+        return line
+    verb, it, n = m.groups()
+    mode = rng.random()
+    if mode < 0.4:
+        # PT: erro de execução — mina/crafta algo inválido. EN: execution
+        # error — mine/craft something invalid.
+        return f"bot.{verb}('unobtainium', {n})"
+    # PT: falha silenciosa — produz o item errado (mas válido). EN: silent
+    # failure — produces a wrong (but valid) item.
+    other = rng.choice(sorted(ITEMS - {it}))
+    return f"bot.{_verb(other)}('{other}', {n})"
 
 
 @mock_handler("voyager.write_code")
@@ -129,23 +147,45 @@ def _write_code(prompt: str, rng: random.Random) -> str:
     skills_txt = _parse_section(prompt, "Relevant skills")
     # PT: reutiliza o código de uma skill que já obtém o item. EN: reuse the
     # code of a retrieved skill that already obtains the item.
-    for blk in re.findall(r"```(.*?)```", skills_txt, flags=re.S):
+    blocks = re.findall(r"- (\w+) — .*?\n```(.*?)```", skills_txt,
+                        flags=re.S)
+    needs = _needs(item)
+    # PT: reuso por PREFIXO — uma skill recuperada cobre o próprio item como
+    # sub-meta; executa até a linha que o produz (§3.3).
+    # EN: PREFIX reuse — a retrieved skill covers the item itself as a
+    # sub-goal; run up to the line producing it.
+    for _name, blk in blocks:
         blines = blk.strip().splitlines()
         for i, ln in enumerate(blines):
             if re.match(rf"bot\.(?:mine|craft|smelt)\('{item}'", ln.strip()):
-                # PT: reuso por PREFIXO — a skill aprendida cobre o item como
-                # sub-meta; executa até a linha que o produz (§3.3).
-                # EN: PREFIX reuse — the learned skill covers the item as a
-                # sub-goal; run up to the line that produces it.
                 return "\n".join(blines[:i + 1])
-    err = _parse_section(prompt, "Last execution error")
-    inv = _inv_of(prompt)
-    # PT: heurística de faltante → inclui pré-requisitos que já estão no
-    # inventário? Não: expande tudo (chamadas redundantes são seguras).
-    # EN: expand everything (redundant bot calls are safe no-ops on missing
-    # rules and idempotent on present items).
-    naive = err.splitlines()[0].strip() in ("", "none") and item not in inv
-    return _code_for(item, include_req=not naive)
+    # PT: COMPOSIÇÃO — uma skill recuperada cobre um PRÉ-REQUISITO: seu
+    # código verificado é emendado intacto e só as linhas novas (delta) são
+    # geradas do zero, com bug por linha. Sem biblioteca, TODA a cadeia é
+    # gerada — cadeias longas falham muito mais (Fig. do paper).
+    # EN: COMPOSITION — a retrieved skill covers a PREREQUISITE: its verified
+    # code is spliced in intact and only the fresh delta lines get per-line
+    # bugs. Without the library, the WHOLE chain is generated — long chains
+    # fail far more often.
+    def _produced(code: str) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for it, n in re.findall(
+                r"bot\.(?:mine|craft|smelt)\('(\w+)', (\d+)\)", code):
+            out[it] = out.get(it, 0) + int(n)
+        return out
+
+    reuse_code = ""
+    produced: dict[str, int] = {}
+    for name, blk in blocks:
+        if name in needs and name != item:
+            p = _produced(blk)
+            if len(p) > len(produced):
+                reuse_code, produced = blk.strip(), p
+    delta = {it: n - produced.get(it, 0)
+             for it, n in needs.items() if n - produced.get(it, 0) > 0}
+    lines = [_mutate(ln, rng) if rng.random() < LINE_BUG_P else ln
+             for ln in _lines_for(delta)]
+    return (reuse_code + "\n" if reuse_code else "") + "\n".join(lines)
 
 
 @mock_handler("voyager.critic")

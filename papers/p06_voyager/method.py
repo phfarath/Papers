@@ -21,8 +21,14 @@ from dataclasses import dataclass, field
 from papers.common.embeddings import HashingEmbedder
 from papers.common.llm import LLM, task_prompt
 from papers.common.retrieval import VectorIndex
-from papers.envs.craft import CraftWorld, run_skill_code
-from papers.p06_voyager.prompts import CHAIN
+from papers.envs.craft import (
+    ITEMS,
+    MINE_REQ,
+    SMELTS,
+    CraftWorld,
+    run_skill_code,
+)
+from papers.p06_voyager.prompts import CHAIN  # noqa: F401
 
 MAX_ROUNDS = 4  # PT: §3.3 — até 4 rounds de self-correction. EN: ≤4 rounds.
 TOP_K = 5       # PT: §3.3 — top-5 skills recuperadas. EN: top-5 retrieved.
@@ -69,9 +75,14 @@ class SkillLibrary:
 
 @dataclass
 class Attempt:
+    """PT: success = o item foi produzido de verdade; believed = o agente
+    achou que conseguiu (sem critic, pode divergir). EN: success = item was
+    actually produced; believed = agent believed success (may diverge
+    without critic)."""
     task: str
     success: bool
     rounds: int
+    believed: bool = True
 
 
 @dataclass
@@ -104,8 +115,14 @@ class VoyagerAgent:
         """PT: próxima tarefa do currículo (ou aleatória na ablação).
         EN: next curriculum task (or random in the no-curriculum ablation)."""
         if not self.use_curriculum:
-            return f"{self.rng.choice(['mine', 'craft'])} " \
-                f"{self.rng.choice(CHAIN)}"
+            # PT: ablação: tarefa aleatória da lista COMPLETA de itens —
+            # inclui itens cujos pré-requisitos ainda faltam (não ordenado).
+            # EN: ablation: random task from the FULL item list — includes
+            # items whose prerequisites are still missing (not ordered).
+            item = self.rng.choice(sorted(ITEMS))
+            verb = ("mine" if item in MINE_REQ
+                    else "smelt" if item in SMELTS else "craft")
+            return f"{verb} {item}"
         body = ("Propose the next task for the agent.\n"
                 f"Episode target: {env.target}\n"
                 f"Inventory: {env.inv}\n"
@@ -115,7 +132,7 @@ class VoyagerAgent:
 
     # ---------- §3.3 execução iterativa ----------
     def _attempt(self, env: CraftWorld, task: str, item: str,
-                 error: str) -> tuple[str, bool]:
+                 error: str) -> tuple[str, bool, bool, str]:
         skills = self.library.retrieve(self.llm, task) if self.use_library else []
         skl_txt = "\n".join(f"- {s.name} — {s.description}\n```{s.code}```"
                             for s in skills)
@@ -125,9 +142,11 @@ class VoyagerAgent:
                 "Write python code calling bot.mine/bot.craft/bot.smelt.")
         code = self.llm.complete(task_prompt("voyager.write_code", body)).strip()
         out = run_skill_code(env, code)
-        ok = env.inv.get(item, 0) > 0 and "error:" not in out
-        new_err = "" if ok else (out if "error:" in out else f"{item} missing")
-        return code, ok, new_err
+        clean = "error:" not in out
+        produced = env.inv.get(item, 0) > 0
+        new_err = "" if produced else (out if not clean else
+                                       f"{item} missing")
+        return code, produced, clean, new_err
 
     def solve_task(self, env: CraftWorld, task: str) -> Attempt:
         """PT: até MAX_ROUNDS rodadas: gerar → executar → critic verifica →
@@ -136,28 +155,43 @@ class VoyagerAgent:
         item = task.split()[-1]
         error = ""
         code = ""
-        ok = False
+        produced = False
+        believed = False
         rounds = 0
         for r in range(1, MAX_ROUNDS + 1):
             rounds = r
-            code, ok, error = self._attempt(env, task, item, error)
-            if ok:
-                if self.use_critic:
+            code, produced, clean, error = self._attempt(env, task, item,
+                                                        error)
+            if self.use_critic:
+                # PT: o critic lê task+inventário do prompt e pega falhas
+                # silenciosas (rodou ok mas o item não está lá).
+                # EN: the critic reads task+inventory from the prompt and
+                # catches silent failures (ran clean but item missing).
+                if produced or clean:
                     verdict = self.llm.complete(task_prompt(
                         "voyager.critic",
                         f"Task: {task}\nInventory: {env.inv}\n"
                         f"Last execution error: {error or 'none'}")).strip()
-                    ok = verdict.startswith("success")
-                if ok:
+                    believed = verdict.startswith("success")
+                if believed:
                     break
-        if ok:
+            elif clean:
+                # PT: SEM critic: código que rodou sem exceção é tratado como
+                # sucesso — mesmo produzindo o item errado → skill quebrada
+                # entra na biblioteca e tarefa é marcada como completa.
+                # EN: WITHOUT critic: clean-running code counts as success —
+                # even producing the wrong item → broken skill stored and
+                # task marked completed.
+                believed = True
+                break
+        if believed:
             self.completed.append(task)
             desc = self.llm.complete(task_prompt(
                 "voyager.suggest", f"Task: {task}")).strip()
             self.library.add(Skill(item, desc, code))
         else:
             self.failed.append(task)
-        return Attempt(task, ok, rounds)
+        return Attempt(task, produced, rounds, believed)
 
 
 def run_episode(llm: LLM, env: CraftWorld, iterations: int,
