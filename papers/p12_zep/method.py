@@ -130,17 +130,29 @@ class ZepGraph:
                now: datetime | None = None) -> list[Edge]:
         """PT: cosine + BM25 + BFS fundidos por RRF; válidos primeiro.
         EN: cosine + BM25 + BFS fused by RRF; currently-valid edges first."""
-        cos = [d for d, _ in self._index.search(query, k * 2)]
-        bm = sorted(self._bm25_scores(query), key=self._bm25_scores(query).get,
-                    reverse=True)[:k * 2]
+        cos_hits = self._index.search(query, k * 2)
+        cos = [d for d, _ in cos_hits]
+        bm_scores = self._bm25_scores(query)
+        bm = sorted(bm_scores, key=bm_scores.get, reverse=True)[:k * 2]
         bfs = self._bfs(cos[:2] + bm[:2])
+        # PT: relevância real = cosine>0 ou BM25>0; os demais vão para o fim.
+        # EN: real relevance = cosine>0 or BM25>0; the rest rank last.
+        rel = {d for d, s in cos_hits if s > 0} | {
+            d for d, s in bm_scores.items() if s > 0}
         ranked = rrf([cos, bm, bfs])
         if use_mmr:
-            docs = {eid: self.edges[eid].fact for eid in ranked}
-            ranked = mmr(query, docs, k)
-        def pri(eid: str) -> tuple[bool, int]:
+            emb = self._index.embedder
+            qv = emb.embed([query])
+            cand_ids = ranked[:k * 2]
+            cv = emb.embed([self.edges[e].fact for e in cand_ids])
+            sel = mmr(qv[0], cv, lambda_=0.7, k=k)
+            ranked = [cand_ids[i] for i in sel]
+        def pri(eid: str) -> tuple[bool, bool, int]:
             e = self.edges[eid]
-            return (e.t_invalid is None, -ranked.index(eid))
+            # PT: relevante & válido primeiro; inválidos caem mas não somem.
+            # EN: relevant & valid first; invalid sinks but stays reachable.
+            return (eid in rel and e.t_invalid is None, eid in rel,
+                    -ranked.index(eid))
         top = sorted(ranked[:k * 2], key=pri, reverse=True)[:k]
         return [self.edges[e] for e in top]
 
