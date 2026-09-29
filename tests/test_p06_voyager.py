@@ -37,7 +37,9 @@ def test_skill_stored_only_on_success() -> None:
     a = VoyagerAgent(llm)
     att = a.solve_task(env, "mine log")
     assert att.success and len(a.library) == 1
-    att = a.solve_task(env, "mine diamond")  # impossível sem tools
+    # PT: item inexistente → nunca verificado → não vira skill.
+    # EN: nonexistent item → never verified → never stored.
+    att = a.solve_task(env, "mine unobtainium")
     assert not att.success and len(a.library) == 1
 
 
@@ -45,7 +47,7 @@ def test_iterative_rounds_cap() -> None:
     llm = MockLLM(0)
     env = CraftWorld("diamond")
     a = VoyagerAgent(llm)
-    att = a.solve_task(env, "mine diamond")
+    att = a.solve_task(env, "mine unobtainium")
     assert not att.success and att.rounds == 4  # MAX_ROUNDS
 
 
