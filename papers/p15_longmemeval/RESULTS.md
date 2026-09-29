@@ -15,7 +15,7 @@ Abilities: IE=information extraction, MR=multi-session reasoning, TR=temporal re
 | a_mem | 0.37 | 0.67 | 0.20 | 0.20 | 0.30 | 0.50 |
 | zep | 0.90 | 1.00 | 1.00 | 1.00 | 1.00 | 0.50 |
 | mem0 | 0.63 | 0.67 | 1.00 | 0.00 | 1.00 | 0.50 |
-| mem0g | 0.23 | 0.53 | 0.00 | 0.00 | 0.10 | 0.50 |
+| mem0g | 0.90 | 1.00 | 1.00 | 1.00 | 1.00 | 0.50 |
 | memory_r1 | 0.40 | 0.60 | 0.00 | 0.20 | 0.70 | 0.50 |
 | FullContext (oracle, untruncated) | 0.96 | 1.00 | 1.00 | 1.00 | 1.00 | 0.80 |
 
@@ -30,7 +30,7 @@ Abilities: IE=information extraction, MR=multi-session reasoning, TR=temporal re
 | a_mem | 0.30 | 0.20 | 0.20 | 0.20 | 0.20 | 0.70 |
 | zep | 0.88 | 1.00 | 1.00 | 1.00 | 1.00 | 0.40 |
 | mem0 | 0.63 | 0.67 | 1.00 | 0.00 | 1.00 | 0.50 |
-| mem0g | 0.23 | 0.53 | 0.00 | 0.00 | 0.10 | 0.50 |
+| mem0g | 0.90 | 1.00 | 1.00 | 1.00 | 1.00 | 0.50 |
 | memory_r1 | 0.51 | 0.53 | 0.80 | 0.30 | 0.40 | 0.50 |
 | FullContext (oracle, untruncated) | 0.96 | 1.00 | 1.00 | 1.00 | 1.00 | 0.80 |
 
