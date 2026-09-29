@@ -23,6 +23,7 @@ from __future__ import annotations
 import numpy as np
 
 from papers.common.embeddings import Embedder, HashingEmbedder
+from papers.common.facts import extract_facts as _shared_extract
 from papers.common.retrieval import VectorIndex
 from papers.common.utils import token_set
 
@@ -194,17 +195,9 @@ class UntrainedManager(MemoryR1Manager):
 
 
 def extract_facts(text: str) -> list[str]:
-    """PT: extração determinística reutilizando os padrões do p13 (o texto
-    bruto entra como 'fato' se nada casar). EN: deterministic extraction
-    reusing p13's patterns (raw text is the fact if nothing matches)."""
-    import re
-
-    from papers.p13_mem0.prompts import _PATS
-    out = [f"user's {s} is {m.group(1).strip()}" for s, p in _PATS
-           for m in re.finditer(p, text)]
-    if re.search(r"gave .* away|no longer", text, flags=re.I):
-        out.append("remove: pet")
-    return out or []
+    """PT: delega ao extrator compartilhado (common.facts).
+    EN: delegates to the shared extractor (common.facts)."""
+    return _shared_extract(text)
 
 
 def distill(candidates: list[str], question: str, k: int = 5) -> list[str]:

@@ -102,9 +102,11 @@ class Mem0Memory:
                     self._index.add(fid, new)
                     self.stats.updates += 1
             elif ln.startswith("DELETE "):
-                tgt = ln[7:]
+                tgt_words = ln[7:].split()
                 for i, t in list(self.memories.items()):
-                    if tgt in t:
+                    # PT: match por palavras — "user pet" casa "user's pet".
+                    # EN: word-level match — "user pet" hits "user's pet".
+                    if all(w in t for w in tgt_words):
                         del self.memories[i]
                         self.stats.deletes += 1
             elif ln.startswith("NOOP"):

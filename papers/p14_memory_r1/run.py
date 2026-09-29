@@ -1,30 +1,34 @@
 """PT: experimento do p14_memory_r1 — treina a política do manager com PPO
 simplificado e GRPO (vantagem relativa ao grupo) sobre recompensa de exact
-match; curva de aprendizado vs heurístico vs não-treinado; QA no dataset
-conversacional vs baselines.
+match; curva de aprendizado medida no BANCO DEPLOYADO (argmax) a cada época;
+treino em personas de treino e avaliação em personas held-out; mean±std de
+3 seeds. Estabilizadores: normalização de vantagem, bônus de entropia, lr
+menor.
 
-EN: p14_memory_r1 experiment — trains the manager policy with simplified PPO
-and GRPO (group-relative advantage) on exact-match reward; learning curve vs
-heuristic vs untrained; conversational QA vs baselines.
+EN: p14_memory_r1 experiment — trains the manager policy with simplified
+PPO and GRPO (group-relative advantage) on exact-match reward; learning
+curve measured on the DEPLOYED (argmax) bank every epoch; train on train
+personas, evaluate on held-out personas; mean±std over 3 seeds.
+Stabilizers: advantage normalization, entropy bonus, lower lr.
 """
 
 from __future__ import annotations
 
 import argparse
 import copy
-from dataclasses import dataclass
+import random
 from pathlib import Path
 
 import numpy as np
 
-from papers.common.conv_data import generate
-from papers.common.llm import LLM, get_llm
-from papers.common.memory_api import (
-    BM25Memory,
-    EmbeddingRAGMemory,
-    FullContextMemory,
-    MemoryItem,
+from papers.common.conv_data import ConvSet, generate
+from papers.common.conv_eval import (
+    QTYPES,
+    EvalResult,
+    baseline_rows,
+    render_acc_table,
 )
+from papers.common.llm import LLM, get_llm
 from papers.common.reader import answer_with_evidence, judge_answer
 from papers.common.utils import token_set
 from papers.p14_memory_r1.method import (
@@ -38,55 +42,58 @@ from papers.p14_memory_r1.method import (
     fact_features,
 )
 
-LR = 0.5
+LR = 0.2
 EPOCHS = 6
-GROUP = 8  # PT: tamanho do grupo GRPO. EN: GRPO group size.
+ENTROPY_BONUS = 0.01  # PT: bônus de entropia para evitar colapso prematuro.
+                      # EN: entropy bonus against premature collapse.
+N_SEEDS = 3
 
 
-@dataclass
-class Row:
-    setting: str
-    accuracy: float
+def _persona_qs(data: ConvSet, names: set[str]) -> list:
+    """PT: perguntas cujo nome pertence ao conjunto. EN: questions whose
+    name belongs to the set."""
+    return [q for q in data.questions
+            if any(n in q.question.split() or f"{n}'s" in q.question
+                   for n in names)]
 
 
-def _qa_reward(mgr, llm: LLM, data) -> float:
-    """PT: recompensa = acurácia de exact/judge nas perguntas.
-    EN: reward = QA accuracy on the dataset questions."""
+def _qa_reward(mgr, llm: LLM, questions) -> float:
     ok = 0
-    for q in data.questions:
+    for q in questions:
         ev = distill(mgr.retrieve(q.question), q.question, k=5)
         pred = answer_with_evidence(llm, q.question, ev)
         ok += max(judge_answer(llm, q.question, q.gold, pred),
                   exact_match(q.gold, pred))
-    return ok / len(data.questions)
+    return ok / len(questions)
 
 
-def _facts(data) -> list[str]:
+def _turns(data: ConvSet, names: set[str]) -> list:
+    return [t for n in names for t in data.by_persona[n]]
+
+
+def _facts(turns) -> list[str]:
     out: list[str] = []
-    for t in data.all_turns():
+    for t in turns:
         out += extract_facts(t.text)
     return out
 
 
 def _op_rewards(mgr: MemoryR1Manager, fact: str, llm: LLM,
-                data) -> np.ndarray:
-    """PT: para cada uma das 4 ops, aplica numa cópia do manager e mede a
-    recompensa QA resultante — esse é o "grupo" do GRPO (rollouts da mesma
-    state) e a fonte da vantagem do PPO simplificado.
-    EN: apply each of the 4 ops on a copy of the manager and measure the
-    resulting QA reward — the GRPO "group" (rollouts of the same state) and
-    the advantage source for simplified PPO."""
-    # PT: atribuição local de crédito — a recompensa de cada op é medida só
-    # nas perguntas relevantes ao fato (slot do fato vs pergunta/gold);
-    # se nenhuma, usa todas. EN: local credit assignment — each op's reward
-    # is measured on the questions relevant to this fact; fall back to all.
-    qs = [q for q in data.questions
+                questions) -> np.ndarray:
+    """PT: para cada op, aplica numa cópia do manager e mede a recompensa QA
+    local (perguntas relevantes ao fato) — o "grupo" GRPO e a fonte da
+    vantagem do PPO simplificado. EN: apply each op on a manager copy and
+    measure local QA reward — the GRPO group / PPO advantage source."""
+    qs = [q for q in questions
           if token_set(fact) & (token_set(q.question) | token_set(q.gold))]
-    subset = qs or data.questions
+    subset = (qs or questions)[:5]
     r = np.zeros(len(OPS))
     for a in range(len(OPS)):
-        snap = copy.deepcopy(mgr)
-        snap._apply(a, fact)
+        if OPS[a] == "noop":
+            snap = mgr
+        else:
+            snap = copy.deepcopy(mgr)
+            snap._apply(a, fact)
         ok = 0
         for q in subset:
             ev = distill(snap.retrieve(q.question), q.question, k=5)
@@ -97,92 +104,126 @@ def _op_rewards(mgr: MemoryR1Manager, fact: str, llm: LLM,
     return r
 
 
-def train(mgr: MemoryR1Manager, data, llm: LLM, algo: str) -> list[float]:
-    """PT: laço de treino com vantagem por op.
-    GRPO: adv_a = r_a - média das recompensas das 4 ops (vantagem relativa ao
-    grupo) — sem baseline. PPO simplificado: adv_a = clip(r_a - baseline
-    móvel da recompensa média, -1, 1). A op aplicada de verdade é amostrada
-    da política (como no paper, on-policy).
-    EN: per-op advantage training. GRPO: adv_a = r_a - mean op reward
-    (group-relative, no baseline). Simplified PPO: adv_a = clip(r_a - moving
-    baseline, -1, 1). The applied op is sampled from the policy (on-policy)."""
-    curve = []
+def _deployed(mgr: MemoryR1Manager, facts: list[str],
+              seed: int) -> MemoryR1Manager:
+    """PT: reconstrói o banco com a política treinada em argmax.
+    EN: rebuilds the bank with the trained policy in argmax mode."""
+    d = MemoryR1Manager(seed=seed)
+    d.policy.w = mgr.policy.w.copy()
+    d.greedy = True
+    for f in facts:
+        d.ingest(f)
+    return d
+
+
+def train(mgr: MemoryR1Manager, train_facts: list[str], train_qs,
+          all_facts: list[str], held_qs, llm: LLM, algo: str,
+          seed: int) -> list[float]:
+    """PT: laço de treino. GRPO: adv_a = (r_a - média)/std do grupo de 4 ops.
+    PPO simplificado: adv clipada vs baseline móvel. Ambos com normalização
+    de vantagem e bônus de entropia. A curva é medida no banco DEPLOYADO
+    (argmax) sobre perguntas held-out.
+    EN: training loop. GRPO: group-mean/std advantage. Simplified PPO:
+    clipped advantage vs moving baseline. Both with advantage normalization
+    and an entropy bonus. The curve is the DEPLOYED (argmax) bank on
+    held-out questions."""
+    curve: list[float] = []
     baseline = 0.0
     for _ep in range(EPOCHS):
-        for f in _facts(data):
+        rng_t = random.Random(seed + _ep)
+        for f in rng_t.sample(train_facts, min(40, len(train_facts))):
             sims = [mgr.memories[d] for d, _ in mgr._index.search(f, 10)
                     if d in mgr.memories]
             x = fact_features(f, sims)
-            r = _op_rewards(mgr, f, llm, data)
-            a = mgr.policy.act(x, mgr.rng)
+            r = _op_rewards(mgr, f, llm, train_qs)
             if algo == "grpo":
                 advs = r - float(r.mean())
             else:
                 advs = np.clip(r - baseline, -1.0, 1.0)
-                baseline = 0.9 * baseline + 0.1 * float(r[a])
-            # PT: GRPO atualiza a política em TODAS as ações do grupo com a
-            # vantagem de cada uma; o banco de treino recebe a op argmax da
-            # recompensa (imitação recompensa-ponderada — a alternativa
-            # on-policy destruía o banco; documentado no README).
-            # EN: update every group action by its advantage; the training
-            # bank applies the reward-argmax op (reward-weighted imitation —
-            # pure on-policy destroyed the bank; documented in README).
-            for a2 in range(len(OPS)):
-                if advs[a2] != 0.0:
-                    mgr.policy.update(x, a2, float(advs[a2]), LR)
+                baseline = 0.9 * baseline + 0.1 * float(r.mean())
+            sd = float(advs.std())
+            if sd > 1e-6:  # PT: normalização de vantagem. EN: normalize.
+                advs = advs / sd
+            for a in range(len(OPS)):
+                if advs[a] != 0.0:
+                    mgr.policy.update(x, a, float(advs[a]), LR)
+            # PT: bônus de entropia — puxa os logits para zero (exploração).
+            # EN: entropy bonus — pulls logits toward zero (exploration).
+            mgr.policy.w *= (1.0 - ENTROPY_BONUS)
             mgr._apply(int(np.argmax(r)), f)
-        curve.append(_qa_reward(mgr, llm, data))
+        dep = _deployed(mgr, all_facts, seed)
+        curve.append(_qa_reward(dep, llm, held_qs))
     return curve
 
 
-def _eval_mem(mem, data, llm: LLM, k: int = 8) -> float:
-    for t in data.all_turns():
-        mem.add(MemoryItem(t.text, t.ts))
-    ok = sum(judge_answer(llm, q.question, q.gold,
-                          answer_with_evidence(
-                              llm, q.question, mem.retrieve(q.question, k=k)))
-             for q in data.questions)
-    return ok / len(data.questions)
+def _qa_per_type(mgr, data: ConvSet, names: set[str], llm: LLM) -> EvalResult:
+    by: dict[str, list[int]] = {qt: [] for qt in QTYPES}
+    for q in _persona_qs(data, names):
+        ev = distill(mgr.retrieve(q.question), q.question, k=5)
+        pred = answer_with_evidence(llm, q.question, ev)
+        by.setdefault(q.qtype, []).append(
+            int(judge_answer(llm, q.question, q.gold, pred)))
+    allv = [v for vs in by.values() for v in vs]
+    return EvalResult("", sum(allv) / len(allv),
+                      {qt: (sum(vs) / len(vs) if vs else 0.0)
+                       for qt, vs in by.items()})
 
 
-def experiment(seed: int, llm: LLM) -> tuple[list[Row], dict[str, list[float]]]:
+def experiment(seed: int, llm: LLM) -> tuple[list[EvalResult],
+                                            dict[str, list[float]]]:
     data = generate(seed)
+    names = data.personas()
+    # PT: split treino/holdout por persona. EN: train/holdout persona split.
+    train_names, held_names = set(names[:7]), set(names[7:])
+    train_facts = _facts(_turns(data, train_names))
+    train_qs = _persona_qs(data, train_names)
+    held_qs = _persona_qs(data, held_names)
+    all_facts = _facts(_turns(data, set(names)))
+
     curves: dict[str, list[float]] = {}
-    rows: list[Row] = []
-    for algo, name in [("ppo", "Memory-R1 (PPO)"),
-                       ("grpo", "Memory-R1 (GRPO)")]:
-        mgr = MemoryR1Manager(seed=seed)
-        curves[name] = train(mgr, data, llm, algo)
-        # PT: deploy — o banco final é reconstruído do zero pela política
-        # treinada em modo argmax (como no paper, a recompensa de treino não
-        # contamina o banco de produção). EN: rebuild the bank with the
-        # trained policy in argmax mode.
-        deploy = MemoryR1Manager(seed=seed)
-        deploy.policy.w = mgr.policy.w.copy()
-        deploy.greedy = True
-        for f in _facts(data):
-            deploy.ingest(f)
-        curves[name] += [_qa_reward(deploy, llm, data)]
-        rows.append(Row(name, _qa_reward(deploy, llm, data)))
-    for name, mgr in [("Memory-R1 (heuristic)", HeuristicManager(seed)),
-                      ("Memory-R1 (untrained)", UntrainedManager(seed))]:
-        for f in _facts(data):
+    rows: list[EvalResult] = []
+    for label, algo in [("Memory-R1 (PPO)", "ppo"),
+                        ("Memory-R1 (GRPO)", "grpo")]:
+        vals: list[float] = []
+        for s in range(N_SEEDS):
+            mgr = MemoryR1Manager(seed=seed + s)
+            c = train(mgr, train_facts, train_qs, all_facts, held_qs,
+                      llm, algo, seed + s)
+            vals.append(c[-1])
+            if s == 0:
+                curves[label] = c
+        r = _qa_per_type(_deployed(mgr, all_facts, seed + N_SEEDS - 1),
+                         data, held_names, llm)
+        r.name = label
+        r.overall = float(np.mean(vals))
+        r.extra = f"{np.mean(vals):.2f}±{np.std(vals):.2f}"
+        rows.append(r)
+    for label, cls in [("Memory-R1 (heuristic)", HeuristicManager),
+                       ("Memory-R1 (untrained)", UntrainedManager)]:
+        mgr = cls(seed)
+        for f in all_facts:
             mgr.ingest(f)
-        curves[name] = [_qa_reward(mgr, llm, data)]
-        rows.append(Row(name, curves[name][0]))
-    for name, m in [("FullContext (truncated)", FullContextMemory(200)),
-                    ("BM25", BM25Memory()),
-                    ("EmbeddingRAG", EmbeddingRAGMemory())]:
-        rows.append(Row(name, _eval_mem(m, data, llm)))
+        r = _qa_per_type(mgr, data, held_names, llm)
+        r.name = label
+        rows.append(r)
+    # PT: baselines avaliados só nas personas held-out (justo). Para
+    # simplicidade avaliam nos turnos held-out. EN: baselines evaluated on
+    # held-out personas only — evaluate on held-out turns.
+    held_data = ConvSet(sessions=[], questions=_persona_qs(data, held_names))
+    held_data.by_persona = {n: data.by_persona[n] for n in held_names}
+    held_data.sessions = [list(held_data.by_persona[n]) for n in held_names]
+    for b in baseline_rows(held_data, llm):
+        rows.append(b)
     return rows, curves
 
 
-def render(rows: list[Row], curves: dict[str, list[float]]) -> str:
+def render(rows: list[EvalResult], curves: dict[str, list[float]]) -> str:
     lines = ["# RESULTS — p14 Memory-R1", "",
              "Generated by `python -m papers.p14_memory_r1.run --write-results` "
              "(fixed seed, MockLLM). Demonstrates the mechanism offline — "
              "does NOT reproduce the paper's numbers.", "",
-             "## Learning curves (QA accuracy per epoch)", "",
+             "## Learning curves — DEPLOYED (argmax) bank on held-out "
+             "questions (seed 0)", "",
              "| epoch | " + " | ".join(curves) + " |", "|---|" + "---|" *
              len(curves)]
     n = max(len(c) for c in curves.values())
@@ -190,16 +231,9 @@ def render(rows: list[Row], curves: dict[str, list[float]]) -> str:
         lines.append(f"| {ep} | " + " | ".join(
             f"{c[ep]:.2f}" if ep < len(c) else "-" for c in curves.values())
             + " |")
-    lines += ["",
-              "The last epoch row is the DEPLOYED bank (rebuilt by the "
-              "trained policy in argmax mode). The tiny linear policy "
-              "sometimes collapses to a degenerate op (e.g. NOOP-everything) "
-              "— reported honestly; the paper's trained LLM policy is "
-              "richer.", "",
-              "## Final conversational QA", "",
-              "| memory system | accuracy |", "|---|---|"]
-    for r in rows:
-        lines.append(f"| {r.setting} | {r.accuracy:.2f} |")
+    lines += ["", "## Held-out conversational QA (mean±std over 3 seeds "
+              "for trained rows)", ""]
+    lines += render_acc_table(rows, extra_col="mean±std")
     return "\n".join(lines) + "\n"
 
 

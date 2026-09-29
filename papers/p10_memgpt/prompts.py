@@ -14,6 +14,7 @@ from __future__ import annotations
 import random
 import re
 
+from papers.common.facts import extract_facts
 from papers.common.llm import mock_handler
 
 
@@ -31,14 +32,14 @@ def _step(prompt: str, rng: random.Random) -> str:
     send_message."""
     msg = _sec(prompt, "User message")
     low = msg.lower()
+    # PT: fatos extraíveis (mesmo com prefixo de nome "Rui here. …") →
+    # archival. EN: extractable facts (even name-prefixed) → archival.
+    facts = extract_facts(msg)
     is_q = "?" in msg or low.startswith(("what", "where", "when", "do i",
                                         "who", "which", "how"))
-    is_fact = low.startswith(("i ", "my ", "please", "by the way"))
-    if is_q:
+    if is_q and not facts:
         return "call archival_memory_search(query=msg)"
-    if is_fact and any(w in low for w in
-                       ("live", "work", "moved", "quit", "favorite", "have",
-                        "name is", "picked up", "forget")):
+    if facts:
         return "call archival_memory_insert(text=msg)\n" \
                "call send_message(text='Got it, noted.')"
     if low.startswith("forget"):

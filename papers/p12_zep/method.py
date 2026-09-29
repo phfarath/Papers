@@ -18,22 +18,20 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from papers.common.embeddings import Embedder, HashingEmbedder
+from papers.common.facts import SLOT_SYNONYMS, extract_facts
 from papers.common.retrieval import VectorIndex, mmr
 from papers.common.retrieval import reciprocal_rank_fusion as rrf
 from papers.common.utils import token_set
 
-# PT: padrões slot → extração de fato "usuário tem slot = valor".
-# EN: slot patterns → extract fact "user has slot = value".
-_SLOT_PATTERNS: list[tuple[str, str]] = [
-    ("city", r"(?:live in|moved to) ([A-Z][a-zA-Z]+)"),
-    ("job", r"(?:work as|started (?:a new job )?as|quit my job as) (\w[\w ]*?) "
-            r"(?:at|in|and|\.|$)"),
-    ("pet", r"(?:my (?:cat|dog|parrot)|have a (\w+))"),
-    ("breakfast", r"favorite breakfast is ([\w ]+)"),
-    ("hobby", r"(?:taken up|hobby is|enjoy) ([\w ]+?)(?:\.| and|$)"),
-]
-_RETRACT = re.compile(r"gave .* away|no longer|don't have anymore",
-                      flags=re.I)
+
+def _parse(f: str) -> tuple[str, str, str] | None:
+    """PT: "{Nome}'s {slot} is {valor}" → (nome, slot, valor).
+    EN: parse a normalized fact."""
+    m = re.match(r"(.+)'s (\w+) is (.*)", f)
+    return (m.group(1), m.group(2), m.group(3)) if m else None
+
+
+_REMOVAL = re.compile(r"remove: (\w+) (\w+)")
 
 
 @dataclass
@@ -60,26 +58,28 @@ class ZepGraph:
         self.edges: dict[str, Edge] = {}
         self._n = 0
 
-    def _extract(self, text: str) -> list[tuple[str, str, str]]:
-        """PT: extrai (slot, valor, fato). EN: extract (slot, value, fact)."""
+    def _extract(self, text: str) -> list[tuple[str, str, str, str]]:
+        """PT: via extrator compartilhado → (nome, slot, valor, fato) ou
+        ('note',...). EN: shared extractor → (name, slot, value, fact)."""
         out = []
-        for slot, pat in _SLOT_PATTERNS:
-            m = re.search(pat, text)
-            if m:
-                val = (m.group(1) or m.group(2) or "").strip().rstrip(".")
-                if val:
-                    out.append((slot, val, f"user's {slot} is {val}"))
-        if not out and not _RETRACT.search(text):
-            out.append(("note", "", text))
+        for f in extract_facts(text):
+            if f.startswith("remove:"):
+                continue
+            p = _parse(f)
+            if p:
+                out.append((p[0], p[1], p[2], f))
+        if not out and not _REMOVAL.search(" ".join(extract_facts(text))):
+            out.append(("user", "note", "", text))
         return out
 
-    def _invalidate_slot(self, slot: str, keep: str | None,
+    def _invalidate_slot(self, name: str, slot: str, keep: str | None,
                          now: datetime | None) -> int:
-        """PT: invalida arestas do mesmo slot com outro valor (não apaga).
-        EN: invalidate same-slot edges with a different value (no delete)."""
+        """PT: invalida arestas do mesmo (nome, slot) com outro valor (não
+        apaga). EN: invalidate same (name, slot) edges — no delete."""
         n = 0
         for e in self.edges.values():
-            if e.slot == slot and e.eid != keep and e.t_invalid is None:
+            if (e.entity_a == name and e.slot == slot and e.eid != keep
+                    and e.t_invalid is None):
                 e.t_invalid = now
                 n += 1
         return n
@@ -89,20 +89,23 @@ class ZepGraph:
         contradições/retratações. EN: ingest a turn: create edges, link by
         slot, invalidate contradictions/retractions."""
         made: list[Edge] = []
-        if _RETRACT.search(text):
-            self._invalidate_slot("pet", None, ts)
-        for slot, val, fact in self._extract(text):
+        for f in extract_facts(text):
+            m = _REMOVAL.match(f)
+            if m:
+                self._invalidate_slot(m.group(1), m.group(2), None, ts)
+        for name, slot, val, fact in self._extract(text):
             self._n += 1
-            e = Edge(f"e{self._n}", "user", val, fact, slot, ts, None, ts,
+            e = Edge(f"e{self._n}", name, val, fact, slot, ts, None, ts,
                      None, [], text)
             self.edges[e.eid] = e
             self._index.add(e.eid, f"{fact} {text}")
             for prev in self.edges.values():
-                if prev.eid != e.eid and prev.slot == slot:
+                if (prev.eid != e.eid and prev.slot == slot
+                        and prev.entity_a == name):
                     prev.neighbors.append(e.eid)
                     e.neighbors.append(prev.eid)
             if slot != "note":
-                self._invalidate_slot(slot, e.eid, ts)
+                self._invalidate_slot(name, slot, e.eid, ts)
             made.append(e)
         return made
 
@@ -134,9 +137,17 @@ class ZepGraph:
                now: datetime | None = None) -> list[Edge]:
         """PT: cosine + BM25 + BFS fundidos por RRF; válidos primeiro.
         EN: cosine + BM25 + BFS fused by RRF; currently-valid edges first."""
-        cos_hits = self._index.search(query, k * 2)
+        # PT: expande a query com os sinônimos de slot — "live" deve
+        # alcançar fatos "X's city is Y". EN: expand the query with slot
+        # synonyms so "live" reaches "X's city is Y" facts.
+        qt = token_set(query)
+        extra = " ".join(sorted({w for syns in SLOT_SYNONYMS.values()
+                                 for w in syns | {next(iter(syns))}
+                                 if syns & qt}))
+        expanded = f"{query} {extra}" if extra else query
+        cos_hits = self._index.search(expanded, k * 2)
         cos = [d for d, _ in cos_hits]
-        bm_scores = self._bm25_scores(query)
+        bm_scores = self._bm25_scores(expanded)
         bm = sorted(bm_scores, key=bm_scores.get, reverse=True)[:k * 2]
         bfs = self._bfs(cos[:2] + bm[:2])
         # PT: relevância real = cosine>0 ou BM25>0; os demais vão para o fim.
@@ -155,15 +166,21 @@ class ZepGraph:
             cv = emb.embed([self.edges[e].fact for e in cand_ids])
             sel = mmr(qv[0], cv, lambda_=0.7, k=k)
             ranked = [cand_ids[i] for i in sel]
+        order = {eid: i for i, eid in enumerate(ranked)}
         def pri(eid: str) -> tuple[bool, bool, bool, int]:
             e = self.edges[eid]
             # PT: fatos estruturados (slot!="note") acima de conversa bruta;
             # relevante & válido primeiro; inválidos caem mas não somem.
             # EN: structured facts above raw chatter; relevant & valid
             # first; invalid sinks but stays reachable.
-            return (eid in rel and e.t_invalid is None, eid in rel,
-                    e.slot != "note", -ranked.index(eid))
-        top = sorted(ranked[:k * 2], key=pri, reverse=True)[:k]
+            return (eid in rel and e.t_invalid is None,
+                    eid in rel and e.slot != "note",
+                    e.slot != "note", -order.get(eid, 10 ** 9))
+        # PT: ordena TODAS as arestas pela prioridade — fatos relevantes
+        # não podem ser expelidos por chatter bem rankeado (rankeados fora
+        # do corte recebem o pior rank). EN: pri-sort ALL edges so relevant
+        # facts aren't crowded out (out-of-cutoff ids get worst rank).
+        top = sorted(self.edges, key=pri, reverse=True)[:k]
         return [self.edges[e] for e in top]
 
     def context(self, query: str, k: int = 5,
