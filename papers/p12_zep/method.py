@@ -18,7 +18,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from papers.common.embeddings import Embedder, HashingEmbedder
-from papers.common.retrieval import VectorIndex, mmr, rrf
+from papers.common.retrieval import VectorIndex, mmr
+from papers.common.retrieval import reciprocal_rank_fusion as rrf
 from papers.common.utils import token_set
 
 # PT: padrões slot → extração de fato "usuário tem slot = valor".
