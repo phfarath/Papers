@@ -151,12 +151,14 @@ class ZepGraph:
             cv = emb.embed([self.edges[e].fact for e in cand_ids])
             sel = mmr(qv[0], cv, lambda_=0.7, k=k)
             ranked = [cand_ids[i] for i in sel]
-        def pri(eid: str) -> tuple[bool, bool, int]:
+        def pri(eid: str) -> tuple[bool, bool, bool, int]:
             e = self.edges[eid]
-            # PT: relevante & válido primeiro; inválidos caem mas não somem.
-            # EN: relevant & valid first; invalid sinks but stays reachable.
+            # PT: fatos estruturados (slot!="note") acima de conversa bruta;
+            # relevante & válido primeiro; inválidos caem mas não somem.
+            # EN: structured facts above raw chatter; relevant & valid
+            # first; invalid sinks but stays reachable.
             return (eid in rel and e.t_invalid is None, eid in rel,
-                    -ranked.index(eid))
+                    e.slot != "note", -ranked.index(eid))
         top = sorted(ranked[:k * 2], key=pri, reverse=True)[:k]
         return [self.edges[e] for e in top]
 
