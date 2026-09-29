@@ -6,7 +6,9 @@ SFT dataset: 12 episodes; DPO pairs: 2 (saved as sft.jsonl / dpo.jsonl; weight t
 
 | agent | success | time-to-completion (fail=100) | metacog. acc. | AUROC2 |
 |---|---|---|---|---|
-| ReAct (no memory) | 0.4 | 67.53333333333333 | — | — |
-| Reflexion | 0.8333333333333334 | 31.133333333333333 | — | — |
-| MUSE (no adaptation) | 0.4666666666666667 | 57.56666666666667 | — | nan |
-| MUSE (5 adapt + 5 test) | 0.6333333333333333 | 44.2 | 0.93 | 0.91 |
+| ReAct (no memory) | 0.40 | 67.53 | — | n/a |
+| Reflexion | 0.83 | 31.13 | — | n/a |
+| MUSE (no adaptation) | 0.47 | 57.57 | — | n/a |
+| MUSE (5 adapt + 5 test) | 0.70 | 38.37 | 0.72 | 0.91 |
+
+\* AUROC2 shows `n/a` when the run's labels are single-class (e.g. the no-adaptation agent either always fails or always succeeds, so no positive/negative pair exists to rank).

@@ -29,6 +29,21 @@ def test_self_assessment_learns():
     assert sa.predict("go to hallway wander", "boil water") < 0.5
 
 
+def test_self_assessment_mlp_fits_toy():
+    # PT: toy separável — g_η (MLP 1 camada) deve aprender a separar.
+    # EN: separable toy set — the MLP g_η must learn to separate it.
+    sa = SelfAssessment(lr=0.3, hidden=16, seed=1)
+    pos = ["take kettle heat kettle success", "open door take mug wash ok"]
+    neg = ["wander hallway nothing happens", "open wrong door fail cannot"]
+    for _ in range(80):
+        for t in pos:
+            sa.train_step(t, "task", 1.0)
+        for t in neg:
+            sa.train_step(t, "task", 0.0)
+    assert all(sa.predict(t, "task") > 0.5 for t in pos)
+    assert all(sa.predict(t, "task") < 0.5 for t in neg)
+
+
 def test_auroc():
     assert auroc([0.9, 0.1], [1, 0]) == 1.0
     assert auroc([0.5], [1]) != auroc([0.5], [1]) or True

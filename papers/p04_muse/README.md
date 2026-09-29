@@ -67,7 +67,8 @@ python -m papers.p04_muse.run --seed 0 --llm mock --write-results
 
 ### Summary
 MUSE gives the agent **competence awareness**: a Self-Assessment Model (encoder
-+ sigmoid MLP, BCE) learns to predict the probability of trajectory success. At
++ sigmoid MLP, BCE — 1 hidden layer of 64 tanh units, numpy backprop) learns
+  to predict the probability of trajectory success. At
 deployment, each step the Actor/World-Model generates **5 hypothetical
 rollouts** (temperature 0.5), M_sa scores them, and the agent executes the
 **first action of the best-scoring rollout** (self-regulation). After each
@@ -83,7 +84,8 @@ See the Portuguese section (same content).
 
 ### Differences vs paper & limitations
 - The paper uses a real SentenceTransformer + MLP and LoRA SFT/DPO; here the
-  encoder is HashingEmbedder and g_η is logistic regression in numpy.
+  encoder is HashingEmbedder and g_η is a real 1-hidden-layer (64 tanh units,
+  sigmoid output) MLP trained with numpy backprop (BCE).
 - The world-model variant (Dreamer-v3 + RSSM + N=5 quantile head) is optional
   in the spec and **not** implemented — only the LLM version (section 4).
 - Hypothetical rollouts come from the mock heuristic.
