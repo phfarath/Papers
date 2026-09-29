@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import papers.p11_a_mem.prompts  # noqa: F401 — registra mock handlers
 from papers.common.embeddings import Embedder, HashingEmbedder
 from papers.common.llm import LLM
 from papers.common.memory_api import MemoryItem

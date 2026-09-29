@@ -25,5 +25,8 @@ class ZepAdapter:
         self.graph.add(item.text, item.timestamp)
 
     def retrieve(self, query: str, *, k: int = 5, now=None) -> list[str]:
-        return [e.fact for e in self.graph.search(query, k,
-                                                use_mmr=self._mmr, now=now)]
+        # PT: usa context() — linhas com intervalos de validade incluindo
+        # arestas invalidadas do slot perguntado. EN: uses context() —
+        # lines with validity ranges incl. invalidated slot edges.
+        ctx = self.graph.context(query, k, now=now)
+        return [ln for ln in ctx.splitlines() if ln.strip()]

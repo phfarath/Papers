@@ -167,6 +167,14 @@ class ZepGraph:
             sel = mmr(qv[0], cv, lambda_=0.7, k=k)
             ranked = [cand_ids[i] for i in sel]
         order = {eid: i for i, eid in enumerate(ranked)}
+        # PT: o conjunto de saída vem de ranked + arestas do slot da query
+        # (precisam estar rankeáveis mesmo sem overlap). EN: the output pool
+        # is ranked + same-slot edges (must be selectable even w/o overlap).
+        qt0 = token_set(query)
+        qslots0 = {s for s, sy in SLOT_SYNONYMS.items()
+                   if sy & qt0 or s in qt0}
+        pool = set(ranked) | {eid for eid, e in self.edges.items()
+                              if e.slot in qslots0 and e.slot != "note"}
         def pri(eid: str) -> tuple[bool, bool, bool, int]:
             e = self.edges[eid]
             # PT: fatos estruturados (slot!="note") acima de conversa bruta;
@@ -180,7 +188,7 @@ class ZepGraph:
         # não podem ser expelidos por chatter bem rankeado (rankeados fora
         # do corte recebem o pior rank). EN: pri-sort ALL edges so relevant
         # facts aren't crowded out (out-of-cutoff ids get worst rank).
-        top = sorted(self.edges, key=pri, reverse=True)[:k]
+        top = sorted(pool, key=pri, reverse=True)[:k]
         return [self.edges[e] for e in top]
 
     def context(self, query: str, k: int = 5,
@@ -189,8 +197,20 @@ class ZepGraph:
         EN: context string with validity ranges."""
         def fmt(d: datetime | None) -> str:
             return d.strftime("%Y-%m-%d") if d else "?"
+        top = self.search(query, k, now=now)
+        # PT: para slots mencionados na query, inclui TODAS as arestas
+        # (válidas E invalidadas) — é o que permite responder "before" e
+        # "still have a pet?". EN: for slots mentioned in the query, include
+        # ALL edges (valid AND invalidated) — that's what answers "before"
+        # and "still have a pet?".
+        qt = token_set(query)
+        qslots = {slot for slot, syns in SLOT_SYNONYMS.items()
+                  if syns & qt or slot in qt}
+        extra = [e for e in self.edges.values()
+                 if e.slot in qslots and e not in top]
+        merged = top + sorted(extra, key=lambda e: e.t_valid or datetime.min)
         lines = []
-        for e in self.search(query, k, now=now):
+        for e in merged:
             end = fmt(e.t_invalid) if e.t_invalid else "present"
             lines.append(f"- {e.fact} (valid: {fmt(e.t_valid)} → {end})")
         return "\n".join(lines)

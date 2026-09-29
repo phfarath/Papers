@@ -56,3 +56,12 @@ EN: Mem0 reached **0.50** overall (1.00 multi-hop, 1.00 update) — the best
 trained system, above BM25 (0.44); ~37 tokens-in-context per query vs the
 oracle's ~1419. Mem0g (graph) sits at 0.12 — (subject, relation, object)
 edges lose the fact text; reported honestly.
+
+**Nota didática / Didactic note:** Mem0's UPDATE/DELETE drops old values —
+it cannot answer "what was my previous job?" (temporal 0.00). Zep (p12)
+keeps them as closed intervals and scores 1.00 temporal — a real design
+contrast, not a bug.
+
+O UPDATE/DELETE do Mem0 descarta valores antigos — não responde "qual era
+meu emprego anterior?" (temporal 0.00). O Zep (p12) os mantém como
+intervalos fechados e acerta 1.00 em temporal.

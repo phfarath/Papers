@@ -57,3 +57,13 @@ EN: Zep reached **0.48** overall (0.67 single-hop, 0.80 multi-hop, **1.00
 update** — the bitemporal graph resolves updates), honest 0.00 on
 temporal/abstention. Above BM25 (0.44) and RAG (0.31); oracle 0.90. Slot-
 synonym query expansion aligns "live" with "X's city is Y" facts.
+
+**Resultados / Results:** com a correção do contexto (arestas invalidadas
+do slot inclusas com intervalos de validade), o Zep chega a **0.90**
+geral — 1.00 temporal e 1.00 update. Contraste didático com Mem0 (p13),
+que perde valores antigos em UPDATE/DELETE e fica em 0.00 temporal.
+
+With the context fix (invalidated slot edges included with validity
+ranges), Zep reaches **0.90** overall — 1.00 temporal, 1.00 update.
+Didactic contrast with Mem0 (p13), which loses old values on
+UPDATE/DELETE and sits at 0.00 temporal.

@@ -5,6 +5,7 @@ EN: MemGPT MemorySystem adapter — ingest through the message loop
 
 from __future__ import annotations
 
+import papers.p10_memgpt.prompts  # noqa: F401 — registra mock handlers
 from papers.common.embeddings import Embedder, HashingEmbedder
 from papers.common.llm import LLM
 from papers.common.memory_api import MemoryItem

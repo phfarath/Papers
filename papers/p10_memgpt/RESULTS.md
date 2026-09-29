@@ -6,8 +6,8 @@ Function set (7): send_message, core_memory_append, core_memory_replace, archiva
 
 | memory system | overall | single-hop | multi-hop | temporal | update | abstention | context events |
 |---||---||---||---||---||---||---||---||---|
-| MemGPT | 0.50 | 0.53 | 0.70 | 0.30 | 0.65 | 0.40 | 203 flushes / 219 warnings |
-| FullContext (oracle, untruncated) | 0.90 | 1.00 | 1.00 | 1.00 | 1.00 | 0.50 |  |
-| FullContext (truncated) | 0.17 | 0.27 | 0.20 | 0.15 | 0.15 | 0.05 |  |
-| BM25 | 0.44 | 0.40 | 0.80 | 0.60 | 0.50 | 0.10 |  |
-| EmbeddingRAG | 0.31 | 0.27 | 0.60 | 0.25 | 0.45 | 0.15 |  |
+| MemGPT | 0.60 | 0.53 | 0.70 | 0.30 | 0.65 | 0.90 | 203 flushes / 219 warnings |
+| FullContext (oracle, untruncated) | 0.99 | 1.00 | 1.00 | 1.00 | 1.00 | 0.95 |  |
+| FullContext (truncated) | 0.26 | 0.27 | 0.20 | 0.15 | 0.15 | 0.50 |  |
+| BM25 | 0.53 | 0.40 | 0.80 | 0.60 | 0.50 | 0.55 |  |
+| EmbeddingRAG | 0.40 | 0.27 | 0.60 | 0.25 | 0.45 | 0.60 |  |
