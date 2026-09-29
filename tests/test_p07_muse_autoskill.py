@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from papers.common.llm import MockLLM
+from papers.p07_muse_autoskill import prompts  # noqa: F401  (registra handlers)
 from papers.p07_muse_autoskill.method import (
     KEEP_FIRST,
     KEEP_LAST,
