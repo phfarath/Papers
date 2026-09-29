@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "papers"
+version = "0.1.0"
+description = "Replicacao bilingue dos papers de memoria de agentes / Bilingual replication of agent-memory papers"
+requires-python = ">=3.10"
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff"]
+openai = ["openai"]
+
+[tool.setuptools.packages.find]
+include = ["papers*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
