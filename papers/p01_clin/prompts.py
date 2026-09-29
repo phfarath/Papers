@@ -131,7 +131,11 @@ def _abstractions_from(prompt: str) -> list[str]:
         dev = m.group(1)
         alt = "microwave" if dev == "stove" else "stove"
         out.append(f"the {dev} does not contribute to heating")
-        out.append(f"using the {alt} should be necessary to heat the {item}")
+        # PT: só recomenda o dispositivo alternativo quando a tarefa pede calor
+        # — antes dizia "microwave necessary to heat the mug" p/ clean_mug e
+        # desviava o executor. EN: only recommend the alt device for heat tasks.
+        if verb == "heat":
+            out.append(f"using the {alt} should be necessary to heat the {item}")
     if "final reward: 1" in low or "reward: 1.0" in low:
         out.append(f"taking the {item} should be necessary to {verb} it")
         out.append(f"{verb}ing the {item} {_WHERE.get(verb, '')} should be "
