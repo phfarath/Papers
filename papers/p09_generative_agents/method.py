@@ -100,13 +100,13 @@ class Agent:
         self.stream.since_reflect = 0
         recent = "\n".join(f"- {m.text}" for m in self.stream.mems
                            [-REFLECT_LAST_N:])
-        qs = self.llm.complete(task_prompt(
+        qs = llm.complete(task_prompt(
             "ga.reflect_q", f"Recent memories:\n{recent}"))
         for q in [ln[2:] for ln in qs.splitlines()
                   if ln.startswith("- ")][:N_QUESTIONS]:
             rel = self.stream.retrieve(q, now, k=10)
             cited = "\n".join(f"[{m.mid}] {m.text}" for m in rel)
-            ins = self.llm.complete(task_prompt(
+            ins = llm.complete(task_prompt(
                 "ga.insight", f"Question: {q}\nMemories:\n{cited}"))
             for ln in ins.splitlines():
                 if ln.startswith("- "):
