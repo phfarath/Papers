@@ -143,7 +143,11 @@ class ZepGraph:
         # EN: real relevance = cosine>0 or BM25>0; the rest rank last.
         rel = {d for d, s in cos_hits if s > 0} | {
             d for d, s in bm_scores.items() if s > 0}
-        ranked = rrf([cos, bm, bfs])
+        # PT: recência temporal entra como ranking na fusão (Graphiti ordena
+        # por recency). EN: temporal recency as a fused ranking.
+        recent = sorted(self.edges, key=lambda d: (
+            self.edges[d].t_valid or datetime.min), reverse=True)[:k * 2]
+        ranked = rrf([cos, bm, bfs, recent])
         if use_mmr:
             emb = self._index.embedder
             qv = emb.embed([query])
