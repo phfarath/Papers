@@ -18,7 +18,7 @@ def test_taxonomy_covers_all_root_index_folders() -> None:
     listed = set(re.findall(r"`(p\d+_\w+)`", readme))
     covered = {m.folder for m in describe()}
     assert listed <= covered, listed - covered
-    assert len(MODULES) == 18
+    assert len(MODULES) == 31
 
 
 def test_coala_agent_learns_semantic_rule() -> None:
