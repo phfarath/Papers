@@ -23,6 +23,7 @@ responses (flat Hebbian).
 import numpy as np
 
 THETA = 0.8  # limiar de ativação da unidade de situação
+LATCH_TC = 0.1  # a glia faz latch rápido do contexto na codificação
 
 
 class SituationMemory:
@@ -63,7 +64,7 @@ class SituationMemory:
         Present cue+context; glia integrates the context (latch).
         """
         for _ in range(int(dur / dt)):
-            self.astro += dt * (-self.astro + self.ctxs[c]) / (self.tau_ctx * 0.2)
+            self.astro += dt * (-self.astro + self.ctxs[c]) / LATCH_TC
 
     def decay_context(self, gap, dt=0.01):
         """Intervalo sem pista contextual: o latch glial decai com tau_ctx."""
@@ -74,9 +75,15 @@ class SituationMemory:
         return np.maximum(0.0, a - theta)
 
     def recall_gated(self, x, ctx):
-        """Recall com situação: fonte do contexto = ctx vivo ou latch glial."""
-        inp = np.concatenate([x, ctx])
-        a = self.S @ inp / (self.S.shape[1] / 2)
+        """Recall com situação: fonte do contexto = ctx vivo ou latch glial.
+
+        Gating duplo: a unidade s_{k,c} só ativa quando o cue casa E o
+        contexto está presente (vivo ou latched) — a similaridade do
+        contexto pesa 50% da ativação, então cue sozinho não dispara.
+        """
+        xmatch = self.S[:, : self.x_dim] @ x / self.x_dim
+        cmatch = np.clip(self.S[:, self.x_dim :] @ ctx / self.ctx_dim, 0.0, 1.0)
+        a = xmatch * (0.5 + 0.5 * cmatch)
         yhat = self.out.T @ self._gate(a)
         return np.sign(yhat + 1e-12)
 
