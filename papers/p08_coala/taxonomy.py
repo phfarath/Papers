@@ -1,8 +1,8 @@
-"""PT: taxonomia CoALA — classifica cada módulo p01–p18 do repo (pelo nome,
+"""PT: taxonomia CoALA — classifica cada módulo p01–p31 do repo (pelo nome,
 incluindo os ainda não implementados) nas dimensões do paper: tipos de
 memória, espaço de ações e procedimento de decisão.
 
-EN: CoALA taxonomy — classifies every p01–p18 module in the repo (by name,
+EN: CoALA taxonomy — classifies every p01–p31 module in the repo (by name,
 including not-yet-implemented ones) along the paper's dimensions: memory
 types, action space, and decision procedure.
 """
@@ -77,6 +77,45 @@ MODULES: list[PaperModule] = [
                 "internal (retrieve from history)",
                 "benchmark v2", True),
     PaperModule("p18_survey", "Survey", "—", "—", "taxonomy survey", True),
+    PaperModule("p19_astrocyte_assoc", "Neuron–Astrocyte Memory",
+                f"{S}+{E}", "internal (energy descent)",
+                "higher-order associative recall", True),
+    PaperModule("p20_astrocyte_context", "Astrocyte Context Gating",
+                f"{W}+{S}", "internal (modulate/consolidate)",
+                "two-timescale context restoration", True),
+    PaperModule("p21_astrocyte_transformer", "Neuron–Astrocyte ODE",
+                f"{W}", "internal (normalize)",
+                "ODE converging to softmax attention", True),
+    PaperModule("p22_neuron_glia_nets", "NGN", f"{S}+{P}",
+                "internal (gain modulation)",
+                "gradient-stall detection + noise kick", True),
+    PaperModule("p23_astrocyte_wm", "WM SNN+Astrocytes", f"{W}+{E}",
+                "internal (Ca²⁺ gating)",
+                "sustained assemblies vs distractors", True),
+    PaperModule("p24_situation_memory", "Situation Memory", f"{E}+{S}",
+                "internal (context latch/decay)",
+                "cue AND context gated recall", True),
+    PaperModule("p25_agmp_continual", "AGMP", f"{S}+{P}",
+                "internal (metaplastic gate)",
+                "importance-gated plasticity", True),
+    PaperModule("p26_dual_memory_nav", "Dual-Timescale Nav", f"{E}+{W}",
+                "internal (suppress visited) + external",
+                "novelty-biased navigation", True),
+    PaperModule("p27_emergent_attention", "Replicator Attention",
+                f"{W}", "internal (gain reallocation)",
+                "replicator dynamics → softmax", True),
+    PaperModule("p28_astromorphic_repair", "Self-Repair", f"{S}+{P}",
+                "internal (template graft)",
+                "glial domain graft on fault", True),
+    PaperModule("p29_lsm_astrocytes", "LSM + Astro Units", f"{W}+{E}",
+                "internal (slow features)",
+                "reservoir + readout ridge", True),
+    PaperModule("p30_hybrid_automaton", "Hybrid Automaton", f"{E}+{W}",
+                "internal (evidence accum → mode switch)",
+                "surprise accumulation → context transition", True),
+    PaperModule("p31_futility_passivity", "Futility Accumulator",
+                f"{W}+{E}", "internal (suppress)",
+                "evidence → passivity → resume", True),
 ]
 
 

@@ -1,10 +1,10 @@
-"""PT: catálogo único dos 18 papers replicados (fonte de verdade para o
+"""PT: catálogo único dos 31 papers replicados (fonte de verdade para o
 índice, a taxonomia do p08 e o survey do p18). Cada entrada: pasta, id
-arXiv, título, ideia em uma linha PT/EN e ambiente usado.
+arXiv/DOI, título, ideia em uma linha PT/EN e ambiente usado.
 
-EN: single source of truth for the 18 replicated papers (index, p08
-taxonomy, p18 survey). Each entry: folder, arXiv id, title, one-line PT/EN
-idea and the environment used.
+EN: single source of truth for the 31 replicated papers (index, p08
+taxonomy, p18 survey). Each entry: folder, arXiv/DOI id, title, one-line
+PT/EN idea and the environment used.
 """
 
 from __future__ import annotations
@@ -95,4 +95,69 @@ CATALOG: list[PaperInfo] = [
               "taxonomia de memória de agentes: forms, functions, dynamics",
               "agent-memory taxonomy: forms, functions, dynamics",
               "repo-wide"),
+    PaperInfo("p19_astrocyte_assoc", "2311.08135",
+              "Neuron–Astrocyte Associative Memory",
+              "acoplamentos de ordem 3 (astrócito) estabilizam memórias",
+              "order-3 (astrocyte) couplings stabilize memories",
+              "numpy offline"),
+    PaperInfo("p20_astrocyte_context", "10.1371/journal.pcbi.1012186",
+              "Astrocytes Contextually-Guided Dynamics",
+              "modulação em duas escalas de tempo liga contexto a pesos",
+              "two-timescale modulation binds context to weights",
+              "numpy offline"),
+    PaperInfo("p21_astrocyte_transformer", "10.1073/pnas.2219150120",
+              "Transformers from Neurons and Astrocytes",
+              "ODE neurônio–astrócito converge para atenção softmax",
+              "neuron–astrocyte ODE converges to softmax attention",
+              "numpy offline"),
+    PaperInfo("p22_neuron_glia_nets", "10.1371/journal.pone.0019109",
+              "Artificial Neuron–Glia Networks",
+              "glia detecta estagnação do gradiente e injeta ruído",
+              "glia detects gradient stalls and injects noise",
+              "numpy offline"),
+    PaperInfo("p23_astrocyte_wm", "10.3389/fncel.2021.631485",
+              "Working Memory in SNN with Astrocytes",
+              "Ca²⁺ glial sustenta assembléias WM contra distrator",
+              "glial Ca²⁺ sustains WM assemblies against distractors",
+              "numpy offline"),
+    PaperInfo("p24_situation_memory", "10.1109/TNNLS.2023.3335450",
+              "Situation-Based Neuromorphic Memory",
+              "memória de situação exige cue E contexto da glia",
+              "situation memory requires both cue AND glial context",
+              "numpy offline"),
+    PaperInfo("p25_agmp_continual", "10.3389/fnins.2025.1768235",
+              "AGMP Continual Learning",
+              "gate metaplástico glial regula estabilidade–plasticidade",
+              "glial metaplastic gate tunes stability–plasticity",
+              "numpy offline"),
+    PaperInfo("p26_dual_memory_nav", "2604.15391",
+              "Dual-Timescale Memory for Navigation",
+              "supressão glial de locais visitados acelera navegação",
+              "glial suppression of visited places speeds navigation",
+              "numpy offline"),
+    PaperInfo("p27_emergent_attention", "2604.25481",
+              "Emergent Self-Attention (Replicator)",
+              "dinâmica replicadora glial gera pesos de atenção softmax",
+              "glial replicator dynamics yields softmax attention",
+              "numpy offline"),
+    PaperInfo("p28_astromorphic_repair", "10.1609/aaai.v37i6.25947",
+              "Astromorphic Self-Repair",
+              "domínios gliais guardam gabaritos para enxerto após falha",
+              "glial domains keep templates for graft repair",
+              "numpy offline"),
+    PaperInfo("p29_lsm_astrocytes", "2503.06798",
+              "LSM with Astrocyte-Like Units",
+              "unidades lentas dão features temporais; razão ótima em U",
+              "slow units give temporal features; U-shaped optimal ratio",
+              "numpy offline"),
+    PaperInfo("p30_hybrid_automaton", "2609.16217",
+              "Neural-Astrocyte Hybrid Automaton",
+              "acumulador glial de evidência troca de modo/contexto",
+              "glial evidence accumulator switches mode/context",
+              "numpy offline"),
+    PaperInfo("p31_futility_passivity", "10.1016/j.cell.2019.05.050",
+              "Glia Accumulate Futility Evidence",
+              "evidência de futilidade suprime ação; retoma após descanso",
+              "futility evidence suppresses action; resumes after rest",
+              "numpy offline"),
 ]
