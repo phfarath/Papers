@@ -1,7 +1,7 @@
 # p30 — Neural-Astrocyte Hybrid Automaton
 
 Giacomo Vedovati, Ilya E. Monosov, Thomas J. Papouin, ShiNung Ching —
-preprint, setembro 2026.
+preprint setembro 2026 (arXiv:2609.16217).
 
 ## 🇧🇷 Português
 
