@@ -1,6 +1,7 @@
 # p29 — Liquid State Machine with Astrocyte-Like Units
 
-Yang et al. — 2026 (arXiv:2609.16217).
+Christopher S. Yang et al. — Neurocomputing 673:132805 (2026).
+Preprint arXiv:2503.06798
 
 ## 🇧🇷 Português
 
