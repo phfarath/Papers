@@ -1,6 +1,7 @@
 # p25 — Astrocyte-Gated Metaplasticity (AGMP)
 
-Dong & He — 2026 (arXiv:2503.06798).
+Zhengshan Dong, Wude He — Frontiers in Neuroscience 19:1768235 (2026).
+DOI: 10.3389/fnins.2025.1768235
 
 ## 🇧🇷 Português
 
