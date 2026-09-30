@@ -1,7 +1,9 @@
 # p24 — Situation-Based Neuromorphic Memory
 
-Susanna Gordleeva et al. — Frontiers in Neuroscience 2025.
-DOI: 10.3389/fnins.2025.1768235
+Susanna Gordleeva, Yuliya Tsybina, Mikhail Krivonosov, Ivan Tyukin,
+Victor Kazantsev, Alexey Zaikin, Alexander Gorban — IEEE Transactions on
+Neural Networks and Learning Systems 2025.
+DOI: 10.1109/TNNLS.2023.3335450
 
 ## 🇧🇷 Português
 
